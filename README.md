@@ -29,10 +29,12 @@ Opening Heptabase, finding today's journal, and switching back breaks your flow.
 
 | | |
 |---|---|
-| <img src="docs/screenshot-light.png" alt="HeptaFloat in light mode floating over another window"> | <img src="docs/screenshot-dark.png" alt="HeptaFloat in dark mode"> |
+| <img src="docs/screenshot-light.png" alt="HeptaFloat in light mode, floating on the desktop"> | <img src="docs/screenshot-dark.png" alt="HeptaFloat in dark mode"> |
 | **Floats above everything.** Put it anywhere on screen; it stays on top across desktops and full-screen apps. | **Looks like Heptabase.** Same font (Inter), colors, checkboxes, lists, link previews and highlights — in light and dark. |
 | <img src="docs/screenshot-commands.png" alt="The / command menu"> | <img src="docs/screenshot-mention.png" alt="Searching cards with @"> |
 | **Type `/` for blocks** — to-dos, headings, bullets, toggles, quotes, dividers, today's date. | **Type `@` to mention a card** from your Heptabase library. Click a mention to open it here or in Heptabase. |
+| <img src="docs/screenshot-notch.png" alt="The card open below the MacBook notch"> | <img src="docs/screenshot-actions.png" alt="The ⌘K action menu"> |
+| **Or keep it in the notch.** Point at the notch and the card drops down; move away and it folds back. | **<kbd>⌘</kbd> <kbd>K</kbd> for every action** — cards, window and formatting, searchable, each with its shortcut. |
 
 - **One shortcut to show and hide** — <kbd>⌃</kbd> <kbd>⌥</kbd> <kbd>J</kbd> by default; record any shortcut you like in Settings.
 - **Jump to any card** — <kbd>⌘</kbd> <kbd>O</kbd> searches your Heptabase cards, <kbd>⌘</kbd> <kbd>P</kbd> shows the cards you've opened in HeptaFloat, <kbd>⌘</kbd> <kbd>[</kbd> / <kbd>⌘</kbd> <kbd>]</kbd> step through them, <kbd>⌘</kbd> <kbd>.</kbd> pins one, <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>D</kbd> goes back to today.
@@ -116,7 +118,7 @@ You can also type Markdown: `- ` bullets, `1. ` numbers, `[] ` to-dos, `# ` head
 
 Press <kbd>⌘</kbd> <kbd>,</kbd> while the card is in front.
 
-<p align="center"><img src="docs/screenshot-settings.png" width="420" alt="HeptaFloat Settings → General: shortcut, keep on top, launch at login, add new cards to today's journal, show in Dock, theme, text size, Heptabase connection (taken before the notch setting was added)"></p>
+<p align="center"><img src="docs/screenshot-settings.png" width="420" alt="HeptaFloat Settings → General: shortcut, keep on top, show the card in the notch, launch at login, add new cards to today's journal, show in Dock, theme, text size, Heptabase connection, version and updates"></p>
 
 **General**
 - **Show / hide shortcut** — click it and press the keys you want. <kbd>Esc</kbd> cancels, **Reset** goes back to <kbd>⌃</kbd> <kbd>⌥</kbd> <kbd>J</kbd>.
@@ -133,7 +135,7 @@ Press <kbd>⌘</kbd> <kbd>,</kbd> while the card is in front.
 
 When a new version is out, the card's footer says so — click it to open Settings, then **Update**.
 
-<p align="center"><img src="docs/screenshot-update.png" width="420" alt="The card's footer: 358 characters · a new HeptaFloat version available"></p>
+<p align="center"><img src="docs/screenshot-update.png" width="420" alt="The card's footer: 310 characters · HeptaFloat 0.9.12 available"></p>
 
 **Shortcuts** — every keyboard shortcut in one place. Click one and press new keys to change it; HeptaFloat warns you if the keys are already taken. **Reset All Shortcuts** restores the defaults. *Link* has no keys by default (<kbd>⌘</kbd> <kbd>K</kbd> opens the action menu, which has *Add link*); give it some here if you like.
 
