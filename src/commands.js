@@ -1,6 +1,6 @@
 // Editing commands for Heptabase's flat list items: each item holds its line plus nested blocks.
 
-import { TextSelection } from 'prosemirror-state';
+import { AllSelection, TextSelection } from 'prosemirror-state';
 import { setBlockType, wrapIn } from 'prosemirror-commands';
 import { closeHistory } from 'prosemirror-history';
 import { LIST_ITEMS } from './schema.js';
@@ -276,4 +276,21 @@ export function insertBlock(view, name) {
     tr.setSelection(TextSelection.create(tr.doc, $from.after(1) + node.nodeSize + 1));
   }
   view.dispatch(tr.scrollIntoView());
+}
+
+/**
+ * ⌘A, like Heptabase: the first press selects the text of the block the cursor is in; when that's
+ * already selected (or the selection spans blocks), it selects the whole card.
+ */
+export function selectBlock(state, dispatch) {
+  const { $from, $to } = state.selection;
+  if ($from.parent.isTextblock && $from.sameParent($to)) {
+    const start = $from.start(), end = $from.end();
+    if ($from.pos > start || $to.pos < end) {
+      dispatch?.(state.tr.setSelection(TextSelection.create(state.doc, start, end)));
+      return true;
+    }
+  }
+  dispatch?.(state.tr.setSelection(new AllSelection(state.doc)));
+  return true;
 }

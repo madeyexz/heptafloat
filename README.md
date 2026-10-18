@@ -88,6 +88,7 @@ Notes and journals open in the floating card and are editable just like today's 
 | `/` | Insert a block: to-do, heading, list, toggle, quote, code, divider, date |
 | `@` or `[[` | Mention a card |
 | Select text | Bold, italic, underline, strikethrough, code, link, **highlight & text color** |
+| <kbd>⌘</kbd> <kbd>A</kbd> | Select the line you're in, like Heptabase; press again for the whole card |
 | <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>H</kbd> | Highlight the selection in yellow (press again to remove) |
 | <kbd>Tab</kbd> / <kbd>⇧</kbd> <kbd>Tab</kbd> | Indent / outdent list items — every selected one. On a plain line right below a bullet, <kbd>Tab</kbd> tucks it under that bullet |
 | <kbd>⌫</kbd> at the start of a bullet | Turn it into plain text where it is; press again to join it with the line above |

@@ -12,7 +12,7 @@ import { inputRules, wrappingInputRule, textblockTypeInputRule, InputRule } from
 import { dropCursor } from 'prosemirror-dropcursor';
 import { gapCursor } from 'prosemirror-gapcursor';
 import { LIST_ITEMS, schemaFor, schemaCovers, serialize, titles, formatDate } from './schema.js';
-import { backspaceAtItemStart, deleteAtLineEnd, enterInItem, lift, setChecked, sink, toggleTodo } from './commands.js';
+import { backspaceAtItemStart, deleteAtLineEnd, enterInItem, lift, selectBlock, setChecked, sink, toggleTodo } from './commands.js';
 import { caretPlugin, placeholderPlugin, suggestPlugin, toggleHighlight, toolbarPlugin } from './menus.js';
 import { createPalette } from './palette.js';
 import { renderSetup } from './setup.js';
@@ -470,7 +470,7 @@ function buildPlugins(schema) {
       'Mod-z': undo, 'Shift-Mod-z': redo, 'Mod-y': redo,
       Enter: enterInItem,
       Backspace: backspaceAtItemStart, Delete: deleteAtLineEnd, 'Ctrl-d': deleteAtLineEnd,
-      Tab: sink, 'Shift-Tab': lift,
+      Tab: sink, 'Shift-Tab': lift, 'Mod-a': selectBlock,
       Escape: () => { post({ action: 'hide' }); return true; },
     }),
     keymap({ ...baseKeymap, Tab: () => true, 'Shift-Tab': () => true }),
@@ -948,6 +948,12 @@ window.hf = {
   async flush() { await Promise.all([...uploads]); await save(); return true; },
   undo() { if (view) { undo(view.state, view.dispatch); view.focus(); } },
   redo() { if (view) { redo(view.state, view.dispatch); view.focus(); } },
+  /** Edit → Select All (⌘A): a text field in focus selects its own text. */
+  selectAll() {
+    const field = document.activeElement?.closest?.('input, textarea');
+    if (field) field.select();
+    else if (view) { selectBlock(view.state, view.dispatch); view.focus(); }
+  },
   titles(map) {
     Object.assign(titles, map);
     for (const c of document.querySelectorAll('.chip[data-id]')) if (map[c.dataset.id]) c.textContent = map[c.dataset.id];

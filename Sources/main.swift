@@ -752,6 +752,7 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
 
     func undo() { web.evaluateJavaScript("window.hf.undo()") }
     func redo() { web.evaluateJavaScript("window.hf.redo()") }
+    func selectAll() { web.evaluateJavaScript("window.hf && window.hf.selectAll()") }
 
     func openInHeptabase() { command("openInHeptabase") }
 
@@ -1773,6 +1774,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if NSApp.keyWindow === journal.panel { journal.redo() } else { NSApp.sendAction(NSSelectorFromString("redo:"), to: nil, from: sender) }
     }
 
+    /// ⌘A in the card selects the current block first, like Heptabase, so the editor handles it.
+    @objc func selectAllInCard(_ sender: Any?) {
+        if NSApp.keyWindow === journal.panel { journal.selectAll() } else { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: sender) }
+    }
+
     @objc func setAppearance(_ item: NSMenuItem) {
         guard let a = item.representedObject as? String, let appearance = Appearance(rawValue: a) else { return }
         settings.setAppearance(appearance)
@@ -1844,9 +1850,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             _ = add(m, "Redo", #selector(redo(_:)), "z", [.command, .shift])
             m.addItem(.separator())
             for (title, action, key) in [("Cut", #selector(NSText.cut(_:)), "x"), ("Copy", #selector(NSText.copy(_:)), "c"),
-                                         ("Paste", #selector(NSText.paste(_:)), "v"), ("Select All", #selector(NSText.selectAll(_:)), "a")] {
+                                         ("Paste", #selector(NSText.paste(_:)), "v")] {
                 m.addItem(withTitle: title, action: action, keyEquivalent: key) // first responder
             }
+            _ = add(m, "Select All", #selector(selectAllInCard(_:)), "a")
         }
         _ = menu("Format") { m in
             for id in ["bold", "italic", "underline", "strike", "code", "link", "highlight"] { _ = shortcut(m, id) }
