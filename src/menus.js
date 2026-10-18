@@ -18,6 +18,10 @@ function todayISO() {
 
 export const suggestKey = new PluginKey('suggest');
 
+/** Where the page starts below the native title bar (0 in the notch). Popups stay below it:
+ *  presses in the bar move the window instead of reaching the page. */
+export const barBottom = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--titlebar')) || 0;
+
 const COMMANDS = [
   { label: 'Text', icon: 'T', keys: 'text paragraph plain', run: (v) => turnInto(v, 'paragraph') },
   { label: 'Heading 1', icon: 'H1', keys: 'h1 heading title', run: (v) => turnInto(v, 'heading', { level: 1 }) },
@@ -164,8 +168,9 @@ const menu = {
     const el = this.ensure();
     const c = view.coordsAtPos(s.from);
     const h = el.offsetHeight, w = el.offsetWidth;
-    const below = c.bottom + 6 + h < window.innerHeight - 8;
-    el.style.top = `${below ? c.bottom + 6 : Math.max(8, c.top - 6 - h)}px`;
+    const top = barBottom() + 8;
+    const below = c.bottom + 6 + h < window.innerHeight - 8 || c.top - 6 - h < top;
+    el.style.top = `${below ? c.bottom + 6 : Math.max(top, c.top - 6 - h)}px`;
     el.style.left = `${Math.max(8, Math.min(c.left - 4, window.innerWidth - w - 8))}px`;
   },
 
@@ -314,7 +319,7 @@ export function toolbarPlugin(onOpenLink) {
         const w = el.offsetWidth, h = el.offsetHeight;
         const mid = (Math.min(a.left, b.left) + Math.max(a.right, b.right)) / 2;
         el.style.left = `${Math.max(8, Math.min(mid - w / 2, window.innerWidth - w - 8))}px`;
-        el.style.top = `${a.top - h - 8 > 30 ? a.top - h - 8 : b.bottom + 8}px`;
+        el.style.top = `${a.top - h - 8 > barBottom() + 8 ? a.top - h - 8 : b.bottom + 8}px`;
       };
       // The link shortcut is remappable, so the editor asks for link mode with an event.
       const onLink = () => { if (!view.state.selection.empty) { mode = 'link'; render(view); } };

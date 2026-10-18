@@ -603,12 +603,30 @@ final class TitleLabel: NSTextField {
 /// menu bar) the Pinyin candidates ended up under the card. NSTextView answers the same way.
 final class CardWebView: WKWebView {
     @objc func windowLevel() -> Int { window?.level.rawValue ?? NSWindow.Level.normal.rawValue }
+
+    /// The page runs under the floating card's title bar (fullSizeContentView), but the bar
+    /// belongs to the window: a press there falls through, so dragging it moves the card. The
+    /// page keeps its popups below the bar, and a drag that starts in the text still goes to
+    /// the page when it moves up into the bar.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let window, window.styleMask.contains(.titled), let superview,
+           superview.convert(point, to: nil).y > window.contentLayoutRect.maxY {
+            return nil
+        }
+        return super.hitTest(point)
+    }
+}
+
+/// The floating card's backdrop. Under the title bar it's what a press lands on (the web view
+/// lets it through), so it moves the window.
+final class CardBackdrop: NSVisualEffectView {
+    override var mouseDownCanMoveWindow: Bool { true }
 }
 
 final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate, NSWindowDelegate, NSToolbarDelegate {
     let panel: FloatPanel
     let web: WKWebView
-    private let backdrop = NSVisualEffectView()
+    private let backdrop = CardBackdrop()
     private let titleLabel = TitleLabel(labelWithString: "")
     private var notch: NotchController?
 

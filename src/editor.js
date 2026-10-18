@@ -380,7 +380,8 @@ const mentionPopup = (() => {
     pop.style.display = 'block';
     const w = pop.offsetWidth, h = pop.offsetHeight;
     pop.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
-    pop.style.top = `${r.bottom + 6 + h < window.innerHeight - 8 ? r.bottom + 6 : r.top - h - 6}px`;
+    const above = r.top - h - 6, roomAbove = above >= insetTop + 8; // never under the title bar
+    pop.style.top = `${r.bottom + 6 + h < window.innerHeight - 8 || !roomAbove ? r.bottom + 6 : above}px`;
   }
 
   function open(target, pin = false) {
