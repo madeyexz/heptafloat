@@ -280,6 +280,12 @@ enum Settings {
         NSApp.setActivationPolicy(showInDock ? .regular : .accessory)
     }
 
+    /// Off (default): the floating card. On: the card lives in the MacBook notch.
+    static var notchMode: Bool {
+        get { defaults.bool(forKey: "notchMode") }
+        set { defaults.set(newValue, forKey: "notchMode") }
+    }
+
     static var checkForUpdates: Bool {
         get { defaults.object(forKey: "checkForUpdates") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "checkForUpdates") }
@@ -567,25 +573,9 @@ final class HeptabaseFileScheme: NSObject, WKURLSchemeHandler {
 
 // MARK: - Window
 
-/// Web view whose top strip drags the window, so the card can sit anywhere.
-final class DragWebView: WKWebView {
-    static let dragStripHeight: CGFloat = 36
-    static let buttonsWidth: CGFloat = 100
-
-    override func mouseDown(with event: NSEvent) {
-        let p = convert(event.locationInWindow, from: nil)
-        let fromTop = isFlipped ? p.y : bounds.height - p.y
-        if fromTop < Self.dragStripHeight && p.x < bounds.width - Self.buttonsWidth {
-            window?.performDrag(with: event)
-            return
-        }
-        super.mouseDown(with: event)
-    }
-}
-
 /// A non-activating panel (like Raycast's or Spotlight's): it takes typing without making
 /// HeptaFloat the active app, so it can float over any space, including other apps' full screen.
-final class FloatPanel: NSPanel {
+class FloatPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
@@ -597,9 +587,26 @@ final class FloatPanel: NSPanel {
     }
 }
 
-final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate, NSWindowDelegate {
+/// The notch card's window: borderless, and allowed to sit in the menu bar.
+final class NotchPanel: FloatPanel {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+}
+
+/// A title label the window can still be dragged by.
+final class TitleLabel: NSTextField {
+    override var mouseDownCanMoveWindow: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate, NSWindowDelegate, NSToolbarDelegate {
     let panel: FloatPanel
-    let web: DragWebView
+    let web: WKWebView
+    private let backdrop = NSVisualEffectView()
+    private let titleLabel = TitleLabel(labelWithString: "")
+    private var notch: NotchController?
+
+    /// The window the card is in right now: the floating panel, or the notch.
+    var cardWindow: NSWindow { notch?.panel ?? panel }
 
     override init() {
         panel = FloatPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 580),
@@ -607,44 +614,49 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
                            backing: .buffered, defer: false)
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(HeptabaseFileScheme(), forURLScheme: HeptabaseFileScheme.scheme) // the configuration keeps it
-        web = DragWebView(frame: .zero, configuration: config)
+        web = WKWebView(frame: .zero, configuration: config)
         super.init()
 
-        panel.titleVisibility = .hidden
+        // A real title bar: traffic lights (close hides the card), the card title in the middle,
+        // and New / Recent / Search buttons. macOS 26 draws the toolbar as Liquid Glass.
+        panel.titleVisibility = .hidden // the centered toolbar label shows it instead
         panel.titlebarAppearsTransparent = true
-        [.closeButton, .miniaturizeButton, .zoomButton].forEach { panel.standardWindowButton($0)?.isHidden = true }
+        panel.toolbarStyle = .unified
+        let toolbar = NSToolbar(identifier: "HeptaFloatCard")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        toolbar.centeredItemIdentifier = .cardTitle
+        panel.toolbar = toolbar
+        panel.standardWindowButton(.zoomButton)?.isEnabled = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.minSize = NSSize(width: 260, height: 180)
+        panel.minSize = NSSize(width: 300, height: 200)
         panel.delegate = self
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .utilityWindow
+        panel.allowsToolTipsWhenApplicationIsInactive = true // HeptaFloat is rarely the active app
 
         config.userContentController.add(self, name: "hf")
         web.setValue(false, forKey: "drawsBackground")
         web.navigationDelegate = self
 
-        // Translucent backdrop like Raycast; the page paints Heptabase's card color over it.
-        let backdrop = NSVisualEffectView()
+        // Translucent backdrop like Raycast; the page paints Heptabase's card color over it, and
+        // runs under the title bar so the bar shows the same color.
         backdrop.material = .popover
         backdrop.blendingMode = .behindWindow
         backdrop.state = .active
-        backdrop.maskImage = Self.roundedMask(radius: 12)
         panel.contentView = backdrop
-        web.translatesAutoresizingMaskIntoConstraints = false
-        backdrop.addSubview(web)
-        NSLayoutConstraint.activate([
-            web.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor),
-            web.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor),
-            web.topAnchor.constraint(equalTo: backdrop.topAnchor),
-            web.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor),
-        ])
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.textColor = .labelColor
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.alignment = .center
 
         // Pause syncing while the card isn't on screen; the editor checks once when it reappears.
         NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: panel, queue: .main) { [weak self] _ in
-            guard let self else { return }
+            guard let self, self.notch == nil else { return }
             let visible = self.panel.isVisible && self.panel.occlusionState.contains(.visible)
             self.web.evaluateJavaScript("window.hf && window.hf.setVisible(\(visible))")
         }
@@ -652,6 +664,7 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         _ = appWatcher // start tracking the app you're in from launch
         if !panel.setFrameUsingName("HeptaFloat") { panel.center() }
         panel.setFrameAutosaveName("HeptaFloat")
+        if Settings.notchMode { enterNotch() } else { attachToPanel() }
         applyPinned()
         applyAppearance()
 
@@ -660,21 +673,135 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         }
     }
 
-    private static func roundedMask(radius: CGFloat) -> NSImage {
-        let size = NSSize(width: radius * 2 + 1, height: radius * 2 + 1)
-        let image = NSImage(size: size, flipped: false) { rect in
-            NSColor.black.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
-            return true
+    // MARK: title bar
+
+    private static let actionItems: [(NSToolbarItem.Identifier, String, String)] = [
+        (.init("search"), "command", "Search cards"), (.init("recent"), "square.on.square", "Recent cards"), (.init("newCard"), "plus", "New card"),
+    ]
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, .cardTitle, .flexibleSpace, .cardActions]
+    }
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarDefaultItemIdentifiers(toolbar) }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        switch id {
+        case .cardTitle:
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.view = titleLabel
+            item.visibilityPriority = .low
+            return item
+        case .cardActions:
+            // One group, so macOS 26 puts the three buttons in a single glass capsule.
+            let items = Self.actionItems.map { id, symbol, title -> NSToolbarItem in
+                let item = NSToolbarItem(itemIdentifier: id)
+                item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+                item.label = title
+                item.isBordered = true
+                item.target = self
+                item.action = #selector(toolbarAction(_:))
+                item.toolTip = Self.tip(for: id)
+                return item
+            }
+            let group = NSToolbarItemGroup(itemIdentifier: id)
+            group.subitems = items
+            group.label = "Cards"
+            group.visibilityPriority = .high
+            return group
+        default:
+            return nil
         }
-        image.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
-        image.resizingMode = .stretch
-        return image
+    }
+
+    @objc private func toolbarAction(_ item: NSToolbarItem) {
+        command(item.itemIdentifier.rawValue)
+    }
+
+    /// Tooltips name each button's current shortcut, which can be changed in Settings.
+    private static func tip(for id: NSToolbarItem.Identifier) -> String {
+        let title = actionItems.first { $0.0 == id }?.2 ?? ""
+        guard let keys = HotKey.parse(ShortcutDef.spec(id.rawValue))?.display else { return title }
+        return "\(title) (\(keys))"
+    }
+
+    func updateToolbarTips() {
+        guard let group = panel.toolbar?.items.first(where: { $0.itemIdentifier == .cardActions }) as? NSToolbarItemGroup else { return }
+        for item in group.subitems { item.toolTip = Self.tip(for: item.itemIdentifier) }
+    }
+
+    func setTitle(_ title: String) {
+        panel.title = title
+        titleLabel.stringValue = title
+    }
+
+    func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool { false }
+
+    /// The page leaves room for the title bar (none in the notch, where the notch band does that).
+    func pushInsets() {
+        let top = notch.map { $0.contentTop } ?? max(0, panel.frame.height - panel.contentLayoutRect.height)
+        web.evaluateJavaScript("window.hf && window.hf.setInsets(\(Int(top.rounded())))")
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        if (notification.object as? NSWindow) === panel { pushInsets() }
+    }
+
+    // MARK: floating card or notch
+
+    private func attachToPanel() {
+        web.removeFromSuperview()
+        web.alphaValue = 1 // the folded notch hides it
+        web.translatesAutoresizingMaskIntoConstraints = false
+        backdrop.addSubview(web)
+        NSLayoutConstraint.activate([
+            web.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor),
+            web.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor),
+            web.topAnchor.constraint(equalTo: backdrop.topAnchor),
+            web.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor),
+        ])
+    }
+
+    private func enterNotch() {
+        let n = NotchController(web: web, cardSize: panel.contentRect(forFrameRect: panel.frame).size)
+        n.panel.delegate = self
+        n.onCollapsed = { [weak self] wasKey in self?.notchCollapsed(wasKey: wasKey) }
+        notch = n
+        n.install()
+    }
+
+    /// Settings → "Show in the notch". Moves the editor between the floating panel and the notch.
+    func applyNotchMode() {
+        let on = Settings.notchMode
+        guard on != (notch != nil) else { return }
+        flushSoon()
+        if on {
+            panel.orderOut(nil)
+            enterNotch()
+        } else {
+            notch?.remove()
+            notch = nil
+            attachToPanel()
+        }
+        applyAppearance()
+        web.evaluateJavaScript("document.body.classList.toggle('notch', \(on))")
+        pushInsets()
+        if !on { show() }
+    }
+
+    private func notchCollapsed(wasKey: Bool) {
+        flushSoon()
+        if NSApp.isActive { previousApp.map { if !$0.isTerminated { $0.activate() } } }
     }
 
     // MARK: show / hide
 
-    var isShown: Bool { panel.isVisible && panel.isKeyWindow && !NSApp.isHidden }
+    var isShown: Bool {
+        if let notch { return notch.expanded && notch.panel.isKeyWindow && !NSApp.isHidden }
+        return panel.isVisible && panel.isKeyWindow && !NSApp.isHidden
+    }
+
+    /// Whether the card is on screen (open, in notch mode), focused or not.
+    var isOpen: Bool { notch.map { $0.expanded } ?? panel.isVisible }
 
     /// The last app you used other than HeptaFloat, to hand focus back to on hide. Tracked
     /// continuously: a launcher (e.g. Raycast) can make HeptaFloat active before show() runs, and
@@ -695,9 +822,13 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
             previousApp = front
         }
         if NSApp.isHidden { NSApp.unhideWithoutActivation() }
-        panel.orderFrontRegardless()
-        panel.makeKey()
-        panel.makeFirstResponder(web)
+        if let notch {
+            notch.expand(focus: true)
+        } else {
+            panel.orderFrontRegardless()
+            panel.makeKey()
+            panel.makeFirstResponder(web)
+        }
         web.evaluateJavaScript("window.hf && window.hf.shown()")
     }
 
@@ -706,6 +837,7 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
     /// Hides the card. If HeptaFloat had become the active app (Dock, ⌘-Tab), hand focus back
     /// to the app you were in; otherwise that app never lost it.
     func hide() {
+        if let notch { notch.collapse(); return }
         flushSoon()
         panel.orderOut(nil)
         if NSApp.isActive { returnFocus() }
@@ -713,7 +845,7 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
 
     /// Steps aside for the app that was in front before the card appeared.
     func returnFocus() {
-        NSApp.hide(nil)
+        if notch == nil { NSApp.hide(nil) } // hiding the app would take the notch with it
         if let previousApp, !previousApp.isTerminated { previousApp.activate() }
     }
 
@@ -738,6 +870,8 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
 
     func applyAppearance() {
         panel.appearance = Settings.appearance.nsAppearance
+        // The notch is black, so the card in it is always dark.
+        notch?.panel.appearance = NSAppearance(named: .darkAqua)
     }
 
     func adjustFont(by delta: Double?) {
@@ -890,12 +1024,15 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
             (NSApp.delegate as? AppDelegate)?.showSettings()
         case "togglePin":
             togglePinned()
+        case "title":
+            setTitle(body["title"] as? String ?? "")
         default: break
         }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        web.evaluateJavaScript("window.hf.setScale(\(Settings.fontScale)); window.hf.setPinned(\(Settings.pinned))")
+        web.evaluateJavaScript("window.hf.setScale(\(Settings.fontScale)); window.hf.setPinned(\(Settings.pinned)); document.body.classList.toggle('notch', \(notch != nil))")
+        pushInsets()
         pushShortcuts()
         pushUpdateNotice()
     }
@@ -933,7 +1070,9 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
     func windowDidResignKey(_ notification: Notification) {
         guard !Settings.pinned else { return }
         DispatchQueue.main.async {
-            if NSApp.keyWindow == nil && self.panel.isVisible { self.flushSoon(); self.panel.orderOut(nil) }
+            guard NSApp.keyWindow == nil else { return }
+            if let notch = self.notch { if notch.expanded { notch.collapse() } }
+            else if self.panel.isVisible { self.flushSoon(); self.panel.orderOut(nil) }
         }
     }
 
@@ -941,6 +1080,226 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         hide()
         return false
     }
+}
+
+// MARK: - Notch
+
+extension NSToolbarItem.Identifier {
+    static let cardTitle = Self("cardTitle")
+    static let cardActions = Self("cardActions")
+}
+
+/// Notch mode: the card lives in the MacBook notch. Collapsed, it is a black shape hugging the
+/// notch (a small pill at the top center on a screen without one); hovering it or the hotkey
+/// drops it down into the full card.
+final class NotchController: NSObject {
+    let panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    private let shape = NotchShapeView()
+    private let web: WKWebView
+    private let cardSize: NSSize
+    private(set) var expanded = false
+    /// Called after the card folds back into the notch, with whether it had keyboard focus.
+    var onCollapsed: (Bool) -> Void = { _ in }
+    private var hoverTimer: Timer?
+    private var screenObserver: NSObjectProtocol?
+
+    /// Space under the notch before the card's text starts.
+    var contentTop: CGFloat { 0 }
+
+    init(web: WKWebView, cardSize: NSSize) {
+        self.web = web
+        self.cardSize = cardSize
+        super.init()
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3) // over the menu bar
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.isReleasedWhenClosed = false
+        panel.animationBehavior = .none
+        panel.isMovable = false
+        panel.contentView = shape
+        shape.onHover = { [weak self] inside in self?.hovered(inside) }
+        web.removeFromSuperview()
+        web.translatesAutoresizingMaskIntoConstraints = true
+        shape.addSubview(web)
+        shape.web = web
+    }
+
+    func install() {
+        layOut(animated: false)
+        panel.orderFrontRegardless()
+        screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.layOut(animated: false)
+        }
+    }
+
+    func remove() {
+        hoverTimer?.invalidate()
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        panel.orderOut(nil)
+        web.removeFromSuperview()
+        shape.web = nil
+    }
+
+    // MARK: geometry
+
+    /// The screen with the notch (the built-in display), else the main screen.
+    private var screen: NSScreen {
+        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? NSScreen.screens[0]
+    }
+
+    /// The notch in screen coordinates, measured from the screen (in points, so it follows the
+    /// display's scaling); on a screen without one, a small pill at the top center.
+    private var notchRect: NSRect {
+        let s = screen, f = s.frame
+        let height = s.safeAreaInsets.top
+        if height > 0 {
+            let left = s.auxiliaryTopLeftArea?.width ?? 0, right = s.auxiliaryTopRightArea?.width ?? 0
+            // whole points inside the notch: the window can't sit on a half point, and must not stick out
+            let minX = (f.minX + left).rounded(.up), maxX = (f.maxX - right).rounded(.down)
+            return NSRect(x: minX, y: f.maxY - height.rounded(.down), width: maxX - minX, height: height.rounded(.down))
+        }
+        return NSRect(x: f.midX - 90, y: f.maxY - 24, width: 180, height: 24)
+    }
+
+    private func frame(expanded: Bool) -> NSRect {
+        let notch = notchRect, f = screen.frame
+        if !expanded { return notch } // exactly over the notch
+        let width = min(max(cardSize.width, notch.width + 120), f.width - 40)
+        let height = min(max(cardSize.height, 320), screen.visibleFrame.height - 20)
+        return NSRect(x: (f.midX - width / 2).rounded(), y: f.maxY - height, width: width, height: height)
+    }
+
+    private func layOut(animated: Bool) {
+        let target = frame(expanded: expanded)
+        // The notch's own proportions: small shoulders where it meets the top edge, round corners below.
+        let h = notchRect.height
+        shape.notchHeight = h
+        shape.ear = expanded ? max(10, (h * 0.19).rounded()) : (h * 0.19).rounded()
+        shape.radius = expanded ? 22 : (h * 0.4).rounded()
+        shape.contentSize = NSSize(width: frame(expanded: true).width, height: frame(expanded: true).height)
+        shape.expanded = expanded
+        if animated {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = expanded ? 0.34 : 0.26
+                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1) // quick out, soft landing
+                ctx.allowsImplicitAnimation = true
+                panel.animator().setFrame(target, display: true)
+                web.animator().alphaValue = expanded ? 1 : 0
+            }
+        } else {
+            panel.setFrame(target, display: true)
+            web.alphaValue = expanded ? 1 : 0
+        }
+    }
+
+    // MARK: open / close
+
+    /// Opens the card. With focus (the hotkey), it takes the keyboard; hovering only shows it.
+    func expand(focus: Bool) {
+        hoverTimer?.invalidate()
+        if !expanded {
+            expanded = true
+            panel.orderFrontRegardless()
+            layOut(animated: true)
+        }
+        if focus {
+            panel.makeKey()
+            panel.makeFirstResponder(web)
+        }
+    }
+
+    func collapse() {
+        hoverTimer?.invalidate()
+        guard expanded else { return }
+        let wasKey = panel.isKeyWindow
+        expanded = false
+        layOut(animated: true)
+        if wasKey {
+            // hand the keyboard back to the app you were in; the notch stays on screen
+            panel.orderOut(nil)
+            panel.orderFrontRegardless()
+        }
+        onCollapsed(wasKey)
+    }
+
+    /// Hovering the notch opens the card; moving away closes it again, unless "Keep on top" is
+    /// on or you're typing in it.
+    private func hovered(_ inside: Bool) {
+        hoverTimer?.invalidate()
+        if inside {
+            guard !expanded else { return }
+            hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: false) { [weak self] _ in self?.expand(focus: false) }
+        } else {
+            guard expanded, !Settings.pinned, !panel.isKeyWindow else { return }
+            hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
+                guard let self, !Settings.pinned, !self.panel.isKeyWindow else { return }
+                self.collapse()
+            }
+        }
+    }
+}
+
+/// The black notch shape: concave "shoulders" where it meets the top of the screen, round
+/// corners below. Holds the editor, kept at the open card's size and pinned to the top, so
+/// opening and closing only reveals it instead of reflowing the text.
+final class NotchShapeView: NSView {
+    var ear: CGFloat = 6 { didSet { needsLayout = true } }
+    var radius: CGFloat = 12 { didSet { needsLayout = true } }
+    var notchHeight: CGFloat = 32 { didSet { needsLayout = true } }
+    var contentSize = NSSize(width: 440, height: 560) { didSet { needsLayout = true } }
+    var expanded = false { didSet { needsLayout = true } }
+    weak var web: WKWebView?
+    var onHover: (Bool) -> Void = { _ in }
+    private let mask = CAShapeLayer()
+    private var tracking: NSTrackingArea?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.mask = mask
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        let ear = ear, w = bounds.width, h = bounds.height
+        let radius = min(radius, (h - 1) / 2, (w - 2 * ear) / 2)
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: 0))
+        path.addQuadCurve(to: CGPoint(x: ear, y: ear), control: CGPoint(x: ear, y: 0))
+        path.addLine(to: CGPoint(x: ear, y: h - radius))
+        path.addQuadCurve(to: CGPoint(x: ear + radius, y: h), control: CGPoint(x: ear, y: h))
+        path.addLine(to: CGPoint(x: w - ear - radius, y: h))
+        path.addQuadCurve(to: CGPoint(x: w - ear, y: h - radius), control: CGPoint(x: w - ear, y: h))
+        path.addLine(to: CGPoint(x: w - ear, y: ear))
+        path.addQuadCurve(to: CGPoint(x: w, y: 0), control: CGPoint(x: w - ear, y: 0))
+        path.closeSubpath()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        mask.frame = bounds
+        mask.path = path
+        CATransaction.commit()
+        // The editor keeps the open card's size, centered under the notch band.
+        let inset: CGFloat = 16
+        web?.frame = NSRect(x: ((w - contentSize.width) / 2 + inset).rounded(), y: notchHeight + 2,
+                            width: contentSize.width - inset * 2, height: contentSize.height - notchHeight - 2 - 8)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHover(true) }
+    override func mouseExited(with event: NSEvent) { onHover(false) }
 }
 
 // MARK: - Heptabase connection check
@@ -1295,6 +1654,7 @@ final class SettingsModel: ObservableObject {
     @Published var showInDock = Settings.showInDock
     @Published var addNewCardsToJournal = Settings.addNewCardsToJournal
     @Published var checkForUpdates = Settings.checkForUpdates
+    @Published var notchMode = Settings.notchMode
     @Published var loginProblem: String?
     @Published var connection = ConnectionStatus.checking
     @Published var shortcuts: [String: String] = [:]
@@ -1306,6 +1666,7 @@ final class SettingsModel: ObservableObject {
     var applyAppearance: () -> Void = {}
     var applyPinned: () -> Void = {}
     var applyFontScale: () -> Void = {}
+    var applyNotchMode: () -> Void = {}
 
     init() {
         reload()
@@ -1355,6 +1716,7 @@ final class SettingsModel: ObservableObject {
     func setAppearance(_ a: Appearance) { Settings.appearance = a; appearance = a; applyAppearance() }
     func setPinned(_ on: Bool) { Settings.pinned = on; pinned = on; applyPinned() }
     func setFontScale(_ v: Double) { Settings.fontScale = v; fontScale = Settings.fontScale; applyFontScale() }
+    func setNotchMode(_ on: Bool) { Settings.notchMode = on; notchMode = on; applyNotchMode() }
     func setAddNewCardsToJournal(_ on: Bool) { Settings.addNewCardsToJournal = on; addNewCardsToJournal = on }
     func setCheckForUpdates(_ on: Bool) {
         Settings.checkForUpdates = on
@@ -1494,6 +1856,11 @@ struct GeneralSettings: View {
             Section {
                 ShortcutRow(model: model, def: ShortcutDef.all[0])
                 Toggle("Keep on top of other windows", isOn: Binding(get: { model.pinned }, set: model.setPinned))
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Show the card in the notch", isOn: Binding(get: { model.notchMode }, set: model.setNotchMode))
+                    Text("The card waits in the MacBook notch (a small pill at the top of a screen without one). Point at it or press the shortcut to open it.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
                 Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: model.setLaunchAtLogin))
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Add new cards to today's journal", isOn: Binding(get: { model.addNewCardsToJournal }, set: model.setAddNewCardsToJournal))
@@ -1644,6 +2011,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         settings.applyAppearance = { [weak self] in self?.journal.applyAppearance(); self?.refreshMenu() }
         settings.applyPinned = { [weak self] in self?.journal.applyPinned(); self?.refreshMenu() }
         settings.applyFontScale = { [weak self] in self?.journal.applyFontScale() }
+        settings.applyNotchMode = { [weak self] in self?.journal.applyNotchMode() }
         NotificationCenter.default.addObserver(forName: Settings.changed, object: nil, queue: .main) { [weak self] _ in
             self?.refreshMenu()
         }
@@ -1667,6 +2035,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         buildMainMenu()
         journal.pushShortcuts()
+        journal.updateToolbarTips()
         return hotKey != nil
     }
 
@@ -1677,7 +2046,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// if it re-activated a hidden card.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         if hotkeyJustFired {
-            if !journal.panel.isVisible { journal.returnFocus() }
+            if !journal.isOpen { journal.returnFocus() }
         } else if journal.isShown && Date().timeIntervalSince(activatedAt) > 0.5 {
             journal.hide() // the card was already up: a second launcher press hides it
         } else {
@@ -1694,12 +2063,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// hid us right after our hotkey showed the card, undo that.
     func applicationDidHide(_ notification: Notification) {
         journal.flushSoon()
+        // The notch stays put: hiding the app only folds the card back into it.
+        if Settings.notchMode {
+            DispatchQueue.main.async { NSApp.unhideWithoutActivation(); self.journal.hide() }
+            return
+        }
         if hotkeyJustFired && hotkeyShowed { DispatchQueue.main.async { self.journal.show() } }
     }
 
     /// ⌘-Tab into HeptaFloat while the card is hidden brings the card back.
     func applicationDidBecomeActive(_ notification: Notification) {
-        guard !hotkeyJustFired, !journal.panel.isVisible, settingsWindow?.isVisible != true else { return }
+        guard !hotkeyJustFired, !journal.isOpen, settingsWindow?.isVisible != true else { return }
         journal.show()
     }
 
@@ -1763,20 +2137,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// ⌘W closes Settings when it's in front, otherwise hides the card.
     @objc func closeWindow() {
-        if let key = NSApp.keyWindow, key !== journal.panel { key.performClose(nil) } else { journal.hide() }
+        if let key = NSApp.keyWindow, key !== journal.cardWindow { key.performClose(nil) } else { journal.hide() }
     }
 
     /// Undo/redo go to the editor's own history when the card is in front.
     @objc func undo(_ sender: Any?) {
-        if NSApp.keyWindow === journal.panel { journal.undo() } else { NSApp.sendAction(NSSelectorFromString("undo:"), to: nil, from: sender) }
+        if NSApp.keyWindow === journal.cardWindow { journal.undo() } else { NSApp.sendAction(NSSelectorFromString("undo:"), to: nil, from: sender) }
     }
     @objc func redo(_ sender: Any?) {
-        if NSApp.keyWindow === journal.panel { journal.redo() } else { NSApp.sendAction(NSSelectorFromString("redo:"), to: nil, from: sender) }
+        if NSApp.keyWindow === journal.cardWindow { journal.redo() } else { NSApp.sendAction(NSSelectorFromString("redo:"), to: nil, from: sender) }
     }
 
     /// ⌘A in the card selects the current block first, like Heptabase, so the editor handles it.
     @objc func selectAllInCard(_ sender: Any?) {
-        if NSApp.keyWindow === journal.panel { journal.selectAll() } else { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: sender) }
+        if NSApp.keyWindow === journal.cardWindow { journal.selectAll() } else { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: sender) }
     }
 
     @objc func setAppearance(_ item: NSMenuItem) {
@@ -1786,7 +2160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// Editing commands only apply while the card is the key window (not in Settings).
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        if item.action == #selector(runCommand(_:)), item.tag == 1 { return NSApp.keyWindow === journal.panel }
+        if item.action == #selector(runCommand(_:)), item.tag == 1 { return NSApp.keyWindow === journal.cardWindow }
         return true
     }
 

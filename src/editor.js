@@ -56,6 +56,12 @@ async function searchCards(query) {
 // MARK: which card is shown
 
 const el = (id) => document.getElementById(id);
+let cardTitle = '';
+/** The card's title lives in the app's title bar. */
+function showTitle(text) { cardTitle = text; post({ action: 'title', title: text }); }
+let insetTop = 0; // height of the native title bar over the page
+// Keep the caret clear of the title bar and the faded footer.
+const scrollRoom = () => ({ top: insetTop + 28, bottom: 72, left: 0, right: 0 });
 let view = null;
 let current = null;       // { kind: 'journal' | 'note', id }
 let followToday = true;   // showing today's journal: switch to the new day at midnight
@@ -568,7 +574,7 @@ function updateCount() {
  *  already the first line (web clips keep it separately). */
 function setTitle(result, json) {
   const title = result.title || (isDate(result.id) ? formatDate(result.id) : 'Untitled');
-  el('title').textContent = title;
+  showTitle(title);
   if (result.kind === 'draft') {
     el('weekday').textContent = '';
     el('jtitle').hidden = true; // the title line is in the card itself
@@ -614,9 +620,8 @@ function load(result, { keepSelection } = {}) {
     else view = new EditorView(el('main'), {
       state,
       nodeViews: Object.fromEntries(LIST_ITEMS.map((t) => [t, (n, v, g) => new ItemView(n, v, g)])),
-      // Keep the caret clear of the faded header and footer.
-      scrollThreshold: { top: 64, bottom: 72, left: 0, right: 0 },
-      scrollMargin: { top: 64, bottom: 72, left: 0, right: 0 },
+      scrollThreshold: scrollRoom(),
+      scrollMargin: scrollRoom(),
       // Pasted or dropped images are imported into Heptabase, then inserted like Heptabase does.
       handlePaste(_v, event) {
         const files = [...(event.clipboardData?.items || [])].filter((i) => i.kind === 'file' && i.type.startsWith('image/')).map((i) => i.getAsFile());
@@ -770,7 +775,7 @@ async function send(snap) {
     if (isShown()) {
       current = note;
       document.body.dataset.kind = 'note';
-      el('title').textContent = r.current?.title || doc.firstChild?.textContent.trim() || 'Untitled';
+      showTitle(r.current?.title || doc.firstChild?.textContent.trim() || 'Untitled');
     }
     target = note;
   }
@@ -787,7 +792,7 @@ async function send(snap) {
     if (fresh) remember(fresh);
     if (isShown() && fresh) adoptIds(doc, fresh);
     unsaved.delete(key);
-    touchRecent(fresh ?? { title: el('title').textContent }, isShown() ? { keepPlace: !wasDraft } : { keepPlace: !wasDraft, card: target, doc });
+    touchRecent(fresh ?? { title: cardTitle }, isShown() ? { keepPlace: !wasDraft } : { keepPlace: !wasDraft, card: target, doc });
     clearError();
     log(`saved ${target.kind} ${target.id}${wasDraft ? ' (new card)' : ''}`);
     if (r.linkHere) linkHereInJournal(target.id);
@@ -876,7 +881,7 @@ async function keepBoth({ target, doc, theirs, shown }) {
   let name = cardCache.get(key)?.title || 'Untitled';
   if (shown) {
     mineDoc = view.state.doc; // includes anything typed since
-    name = el('title').textContent || name;
+    name = cardTitle || name;
     clearTimeout(saveTimer);
     dirty = false;
     applyRemote(theirs);
@@ -943,6 +948,12 @@ window.hf = {
   reply(requestId, result) { waiting.get(requestId)?.(result); waiting.delete(requestId); },
   setScale(s) { document.documentElement.style.setProperty('--scale', s); if (view) view.dispatch(view.state.tr); },
   setPinned(on) { document.body.classList.toggle('pinned', on); },
+  /** Height of the title bar the page runs under (0 in the notch). */
+  setInsets(top) {
+    insetTop = top;
+    document.documentElement.style.setProperty('--titlebar', `${top}px`);
+    view?.setProps({ scrollThreshold: scrollRoom(), scrollMargin: scrollRoom() });
+  },
   shown() { onScreen = true; view?.focus(); poll(); if (current) refreshNearby(); },
   setVisible(v) { const was = onScreen; onScreen = v; if (v && !was) { poll(); if (current) refreshNearby(); } },
   async flush() { await Promise.all([...uploads]); await save(); return true; },
@@ -978,10 +989,7 @@ window.hf = {
   },
 };
 
-el('close').onclick = () => post({ action: 'hide' });
-el('pin').onclick = () => post({ action: 'togglePin' });
 el('update').onclick = () => post({ action: 'settings' });
-el('open').onclick = () => openInHeptabase(current?.id);
 
 /** Until Heptabase answers, show the setup checklist and keep checking; then start the editor. */
 let connectTimer = null, connecting = false, started = false;
