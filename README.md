@@ -16,8 +16,8 @@
 
 <table align="center">
   <tr>
-    <td align="center" width="50%"><img src="docs/notch.gif" alt="Pointing at the MacBook notch drops the journal card down; moving away folds it back; dragging its bottom edge and corner resizes it"><br><b>In the notch</b> — point at it, and the card drops down</td>
-    <td align="center" width="50%"><img src="docs/float.gif" alt="⌘K switches to the floating card, which is then dragged around the screen by its title bar"><br><b>Or floating</b> — anywhere on screen, above every window</td>
+    <td align="center" valign="top" width="50%"><img src="docs/notch.gif" alt="Pointing at the MacBook notch drops the journal card down; moving away folds it back; dragging its bottom edge and corner resizes it"><br><b>In the notch</b> — point at it, and the card drops down</td>
+    <td align="center" valign="top" width="50%"><img src="docs/float.gif" alt="⌘K switches to the floating card, which is then dragged around the screen by its title bar"><br><b>Or floating</b> — anywhere on screen, above every window</td>
   </tr>
 </table>
 
