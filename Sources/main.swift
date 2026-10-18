@@ -736,7 +736,6 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
     func updateToolbarTips() {
         guard let group = panel.toolbar?.items.first(where: { $0.itemIdentifier == .cardActions }) as? NSToolbarItemGroup else { return }
         for item in group.subitems { item.toolTip = Self.tip(for: item.itemIdentifier) }
-        notch?.updatePin()
     }
 
     /// Keep on top changed (pin button, ⌘⇧P, the View menu or Settings): every pin shows it.
@@ -781,8 +780,7 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
     private func enterNotch() {
         let n = NotchController(web: web, cardSize: panel.contentRect(forFrameRect: panel.frame).size)
         n.panel.delegate = self
-        n.onCollapsed = { [weak self] wasKey in self?.notchCollapsed(wasKey: wasKey) }
-        n.onPin = { [weak self] in self?.togglePinned() }
+        n.onCollapsed = { [weak self] handBack in self?.notchCollapsed(handBack: handBack) }
         notch = n
         n.install()
     }
@@ -806,9 +804,11 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         if !on { show() }
     }
 
-    private func notchCollapsed(wasKey: Bool) {
+    /// handBack: return the keyboard to the app you were in (not after a click into another app,
+    /// which takes it itself).
+    private func notchCollapsed(handBack: Bool) {
         flushSoon()
-        if NSApp.isActive { previousApp.map { if !$0.isTerminated { $0.activate() } } }
+        if handBack, NSApp.isActive { previousApp.map { if !$0.isTerminated { $0.activate() } } }
     }
 
     // MARK: show / hide
@@ -1116,26 +1116,34 @@ final class NotchController: NSObject {
     let panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     private let shape = NotchShapeView()
     private let web: WKWebView
-    private let cardSize: NSSize
+    /// The open card's size; drag its bottom edge or corners to change it. Kept apart from the
+    /// floating card's frame.
+    private var cardSize: NSSize
+    private static let sizeKey = "notchCardSize"
     private(set) var expanded = false
-    /// Called after the card folds back into the notch, with whether it had keyboard focus.
+    /// Called after the card folds back into the notch, with whether to hand the keyboard back.
     var onCollapsed: (Bool) -> Void = { _ in }
-    /// The pin button in the band beside the notch was clicked.
-    var onPin: () -> Void = {}
     private var hoverTimer: Timer?
     private var screenObserver: NSObjectProtocol?
+    private var clickMonitor: Any?
     private var leaveWatch: Timer?
     private var outsideSince: Date?
+    /// The pointer has been over the card since it opened; only then can it leave. (Opened with
+    /// the hotkey while the pointer is elsewhere, it doesn't fold until you've been in it.)
+    private var pointerVisited = false
     private var askingPage = false
-    /// Keep on top, in the band beside the notch (the open card has no title bar).
-    private let pinButton = FirstClickButton()
+    private var resizeStart = NSSize.zero
 
     /// Space under the notch before the card's text starts.
     var contentTop: CGFloat { 0 }
 
     init(web: WKWebView, cardSize: NSSize) {
         self.web = web
-        self.cardSize = cardSize
+        if let saved = UserDefaults.standard.array(forKey: Self.sizeKey) as? [Double], saved.count == 2 {
+            self.cardSize = NSSize(width: saved[0], height: saved[1])
+        } else {
+            self.cardSize = cardSize
+        }
         super.init()
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -1151,29 +1159,11 @@ final class NotchController: NSObject {
         web.translatesAutoresizingMaskIntoConstraints = true
         shape.addSubview(web)
         shape.web = web
-        panel.allowsToolTipsWhenApplicationIsInactive = true
-        pinButton.isBordered = false
-        pinButton.imageScaling = .scaleProportionallyDown
-        pinButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        pinButton.target = self
-        pinButton.action = #selector(pinClicked)
-        pinButton.alphaValue = 0
-        shape.addSubview(pinButton)
-        shape.pinButton = pinButton
-        updatePin()
-    }
-
-    @objc private func pinClicked() { onPin() }
-
-    func updatePin() {
-        pinButton.image = NSImage(systemSymbolName: JournalWindow.pinSymbol, accessibilityDescription: "Keep on top")
-        pinButton.contentTintColor = Settings.pinned ? .labelColor : .secondaryLabelColor
-        pinButton.toolTip = JournalWindow.tip(for: .keepOnTop)
+        shape.onResize = { [weak self] edge, delta, phase in self?.resize(edge, delta, phase) }
     }
 
     /// Pinned, an open card stays open; unpinned, it folds when the pointer leaves.
     func pinChanged() {
-        updatePin()
         guard expanded else { return }
         if Settings.pinned { leaveWatch?.invalidate() } else { watchForLeaving() }
     }
@@ -1184,12 +1174,19 @@ final class NotchController: NSObject {
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.layOut(animated: false)
         }
+        // Unpinned, a click anywhere outside the card folds it at once (clicks in HeptaFloat's
+        // own windows aren't seen here). The app you click gets the keyboard by itself.
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            guard let self, self.expanded, !Settings.pinned, !self.stripRect.contains(NSEvent.mouseLocation) else { return }
+            self.collapse(handBack: false)
+        }
     }
 
     func remove() {
         hoverTimer?.invalidate()
         leaveWatch?.invalidate()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
         panel.orderOut(nil)
         web.removeFromSuperview()
         shape.web = nil
@@ -1219,9 +1216,34 @@ final class NotchController: NSObject {
     private func frame(expanded: Bool) -> NSRect {
         let notch = notchRect, f = screen.frame
         if !expanded { return notch } // exactly over the notch
-        let width = min(max(cardSize.width, notch.width + 120), f.width - 40)
-        let height = min(max(cardSize.height, 320), screen.visibleFrame.height - 20)
-        return NSRect(x: (f.midX - width / 2).rounded(), y: f.maxY - height, width: width, height: height)
+        let size = clamped(cardSize)
+        return NSRect(x: (f.midX - size.width / 2).rounded(), y: f.maxY - size.height, width: size.width, height: size.height)
+    }
+
+    /// From about the floating card's smallest size up to the screen below the menu bar (the
+    /// card starts at the top edge, so its height includes the menu bar band), with a margin.
+    private func clamped(_ size: NSSize) -> NSSize {
+        let s = screen, f = s.frame
+        let width = min(max(size.width, 300, notchRect.width + 120), f.width - 40)
+        let height = min(max(size.height, 240), f.maxY - s.visibleFrame.minY - 8)
+        return NSSize(width: width.rounded(), height: height.rounded())
+    }
+
+    /// Dragging the bottom edge changes the height; a bottom corner also changes the width, on
+    /// both sides, so the card stays centered under the notch. A held mouse button keeps the
+    /// card open (pointerIsNear).
+    private func resize(_ edge: NotchShapeView.ResizeEdge, _ delta: NSSize, _ phase: NotchShapeView.ResizePhase) {
+        switch phase {
+        case .began:
+            resizeStart = clamped(cardSize)
+        case .dragged:
+            let grow: CGFloat = edge == .bottomLeft ? -2 : edge == .bottomRight ? 2 : 0
+            cardSize = clamped(NSSize(width: resizeStart.width + grow * delta.width, height: resizeStart.height - delta.height))
+            layOut(animated: false)
+        case .ended:
+            cardSize = clamped(cardSize)
+            UserDefaults.standard.set([Double(cardSize.width), Double(cardSize.height)], forKey: Self.sizeKey)
+        }
     }
 
     private func layOut(animated: Bool) {
@@ -1235,17 +1257,15 @@ final class NotchController: NSObject {
         shape.expanded = expanded
         if animated {
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = expanded ? 0.34 : 0.26
+                ctx.duration = expanded ? 0.34 : 0.18 // folding away should feel instant
                 ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1) // quick out, soft landing
                 ctx.allowsImplicitAnimation = true
                 panel.animator().setFrame(target, display: true)
                 web.animator().alphaValue = expanded ? 1 : 0
-                pinButton.animator().alphaValue = expanded ? 1 : 0
             }
         } else {
             panel.setFrame(target, display: true)
             web.alphaValue = expanded ? 1 : 0
-            pinButton.alphaValue = expanded ? 1 : 0
         }
     }
 
@@ -1258,6 +1278,8 @@ final class NotchController: NSObject {
         hoverTimer?.invalidate()
         if !expanded {
             expanded = true
+            pointerVisited = false
+            BackgroundCursor.allow(true) // resize cursors on its bottom edge
             panel.orderFrontRegardless()
             layOut(animated: true)
         }
@@ -1268,31 +1290,35 @@ final class NotchController: NSObject {
         if !Settings.pinned { watchForLeaving() }
     }
 
-    func collapse() {
+    /// handBack: give the keyboard back to the app you were in (Esc, leaving); a click into
+    /// another app has already given it to that app.
+    func collapse(handBack: Bool = true) {
         hoverTimer?.invalidate()
         leaveWatch?.invalidate()
         guard expanded else { return }
         let wasKey = panel.isKeyWindow
         expanded = false
+        BackgroundCursor.allow(false)
         layOut(animated: true)
         if wasKey {
-            // hand the keyboard back to the app you were in; the notch stays on screen
+            // let go of the keyboard; the notch stays on screen
             panel.orderOut(nil)
             panel.orderFrontRegardless()
         }
-        onCollapsed(wasKey)
+        onCollapsed(handBack && wasKey)
     }
 
     /// Pointing at the notch opens the card (brushing past doesn't: the pointer has to rest there
     /// a moment). Leaving is handled by watchForLeaving.
     private func hovered(_ inside: Bool) {
         hoverTimer?.invalidate()
+        if inside, expanded { pointerVisited = true } // also while pinned, for when it's unpinned
         guard inside, !expanded else { return }
         hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: false) { [weak self] _ in self?.expand(focus: false) }
     }
 
     /// Unpinned, the open card folds back once the pointer has been away for a moment, however
-    /// it was opened. The menu bar strip around the notch, the card's own menus and a held mouse
+    /// it was opened (after the pointer has been over it). The menu bar strip around the notch, the card's own menus and a held mouse
     /// button (drag-selecting) count as still being there, and the timer doesn't fire while a
     /// menu is being tracked. Before folding it asks the page, which holds it open during an IME
     /// composition or while one of its popups is up.
@@ -1301,7 +1327,8 @@ final class NotchController: NSObject {
         outsideSince = nil
         leaveWatch = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
             guard let self, self.expanded, !Settings.pinned else { timer.invalidate(); return }
-            if self.pointerIsNear() { self.outsideSince = nil; return }
+            if self.pointerIsNear() { self.outsideSince = nil; self.pointerVisited = true; return }
+            guard self.pointerVisited else { return }
             let since = self.outsideSince ?? Date()
             self.outsideSince = since
             guard Date().timeIntervalSince(since) >= Self.leaveDelay, !self.askingPage else { return }
@@ -1318,20 +1345,36 @@ final class NotchController: NSObject {
 
     static let leaveDelay: TimeInterval = 0.4
 
+    /// The menu bar strip the card hangs from, a little wider than the card.
+    private var stripRect: NSRect {
+        let card = panel.frame, notch = notchRect
+        return NSRect(x: card.minX - 40, y: notch.minY, width: card.width + 80, height: screen.frame.maxY - notch.minY)
+    }
+
     private func pointerIsNear() -> Bool {
-        let p = NSEvent.mouseLocation, card = panel.frame, notch = notchRect
-        if card.contains(p) || NSEvent.pressedMouseButtons != 0 { return true }
-        // the menu bar strip the card hangs from, a little wider than the card
-        let strip = NSRect(x: card.minX - 40, y: notch.minY, width: card.width + 80, height: screen.frame.maxY - notch.minY)
-        if strip.contains(p) { return true }
+        let p = NSEvent.mouseLocation
+        if panel.frame.contains(p) || stripRect.contains(p) || NSEvent.pressedMouseButtons != 0 { return true }
         // menus and other popups the card opens (context menu, tooltips)
         return NSApp.windows.contains { $0 !== panel && $0.isVisible && $0.level.rawValue >= NSWindow.Level.popUpMenu.rawValue && $0.frame.contains(p) }
     }
 }
 
-/// Acts on the first click, even while the card isn't the key window.
-final class FirstClickButton: NSButton {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+/// macOS only lets the frontmost app change the pointer. The open notch card is usually under
+/// the pointer while another app is in front, so its resize cursors need WindowServer's
+/// "SetsCursorInBackground" connection property. It's private, so it's looked up at run time
+/// and skipped if it isn't there.
+enum BackgroundCursor {
+    private typealias DefaultConnection = @convention(c) () -> UInt32
+    private typealias SetProperty = @convention(c) (UInt32, UInt32, CFString, CFTypeRef) -> Int32
+    private static let handle = dlopen(nil, RTLD_NOW)
+    private static let connection = dlsym(handle, "_CGSDefaultConnection").map { unsafeBitCast($0, to: DefaultConnection.self) }
+    private static let setProperty = dlsym(handle, "CGSSetConnectionProperty").map { unsafeBitCast($0, to: SetProperty.self) }
+
+    static func allow(_ on: Bool) {
+        guard let connection, let setProperty else { return }
+        let cid = connection()
+        _ = setProperty(cid, cid, "SetsCursorInBackground" as CFString, (on ? kCFBooleanTrue : kCFBooleanFalse) as CFTypeRef)
+    }
 }
 
 /// The black notch shape: concave "shoulders" where it meets the top of the screen, round
@@ -1344,10 +1387,16 @@ final class NotchShapeView: NSView {
     var contentSize = NSSize(width: 440, height: 560) { didSet { needsLayout = true } }
     var expanded = false { didSet { needsLayout = true } }
     weak var web: WKWebView?
-    weak var pinButton: NSButton?
     var onHover: (Bool) -> Void = { _ in }
+    enum ResizeEdge { case bottom, bottomLeft, bottomRight }
+    enum ResizePhase { case began, dragged, ended }
+    /// A drag on the bottom edge or a bottom corner, with how far the pointer moved (screen points).
+    var onResize: (ResizeEdge, NSSize, ResizePhase) -> Void = { _, _, _ in }
     private let mask = CAShapeLayer()
     private var tracking: NSTrackingArea?
+    private var dragging: (edge: ResizeEdge, from: NSPoint)?
+    private var outline = CGMutablePath() // the visible shape; outside it clicks fall through
+    private var resizeCursorShown = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -1377,28 +1426,83 @@ final class NotchShapeView: NSView {
         CATransaction.setDisableActions(true)
         mask.frame = bounds
         mask.path = path
+        outline = path
         CATransaction.commit()
         // The editor keeps the open card's size, centered under the notch band.
         let inset: CGFloat = 16
         web?.frame = NSRect(x: ((w - contentSize.width) / 2 + inset).rounded(), y: notchHeight + 2,
                             width: contentSize.width - inset * 2, height: contentSize.height - notchHeight - 2 - 8)
-        // the pin sits in the band right of the notch, over the end of the text column
-        if let web, let pinButton {
-            let size: CGFloat = 26
-            pinButton.frame = NSRect(x: web.frame.maxX - size - 6, y: ((notchHeight - size) / 2).rounded(), width: size, height: size)
-        }
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }
 
     override func mouseEntered(with event: NSEvent) { onHover(true) }
-    override func mouseExited(with event: NSEvent) { onHover(false) }
+    override func mouseExited(with event: NSEvent) { onHover(false); showCursor(for: nil) }
+
+    // MARK: resizing the open card
+
+    /// The black margin under the text (8 pt) is the bottom edge; the rounded ends (30 pt each
+    /// way) are the corners. Only inside the visible shape: clicks outside it reach the app below.
+    private func edge(at p: NSPoint) -> ResizeEdge? {
+        guard expanded, outline.contains(p) else { return nil }
+        let w = bounds.width, h = bounds.height, corner: CGFloat = 30
+        if p.y >= h - corner && p.x <= ear + corner { return .bottomLeft }
+        if p.y >= h - corner && p.x >= w - ear - corner { return .bottomRight }
+        return p.y >= h - 8 ? .bottom : nil
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let superview, edge(at: convert(point, from: superview)) != nil { return self }
+        return super.hitTest(point)
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    private func showCursor(for edge: ResizeEdge?) {
+        guard let edge else {
+            if resizeCursorShown { NSCursor.arrow.set(); resizeCursorShown = false }
+            return
+        }
+        resizeCursorShown = true
+        if #available(macOS 15.0, *) {
+            let position: NSCursor.FrameResizePosition = edge == .bottom ? .bottom : edge == .bottomLeft ? .bottomLeft : .bottomRight
+            NSCursor.frameResize(position: position, directions: .all).set()
+        } else {
+            NSCursor.resizeUpDown.set()
+        }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        if dragging == nil { showCursor(for: edge(at: convert(event.locationInWindow, from: nil))) }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let edge = edge(at: convert(event.locationInWindow, from: nil)) else { return super.mouseDown(with: event) }
+        dragging = (edge, NSEvent.mouseLocation)
+        window?.makeKey() // like a click into the card
+        showCursor(for: edge)
+        onResize(edge, .zero, .began)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let dragging else { return super.mouseDragged(with: event) }
+        let p = NSEvent.mouseLocation
+        onResize(dragging.edge, NSSize(width: p.x - dragging.from.x, height: p.y - dragging.from.y), .dragged)
+        showCursor(for: dragging.edge)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let dragging else { return super.mouseUp(with: event) }
+        self.dragging = nil
+        onResize(dragging.edge, .zero, .ended)
+        showCursor(for: edge(at: convert(event.locationInWindow, from: nil)))
+    }
 }
 
 // MARK: - Heptabase connection check
