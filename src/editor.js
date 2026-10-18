@@ -13,7 +13,7 @@ import { dropCursor } from 'prosemirror-dropcursor';
 import { gapCursor } from 'prosemirror-gapcursor';
 import { LIST_ITEMS, schemaFor, schemaCovers, serialize, titles, formatDate } from './schema.js';
 import { backspaceAtItemStart, deleteAtLineEnd, enterInItem, lift, selectBlock, setChecked, sink, toggleTodo } from './commands.js';
-import { caretPlugin, placeholderPlugin, suggestPlugin, toggleHighlight, toolbarPlugin } from './menus.js';
+import { caretPlugin, placeholderPlugin, suggestKey, suggestPlugin, toggleHighlight, toolbarPlugin } from './menus.js';
 import { createPalette } from './palette.js';
 import { renderSetup } from './setup.js';
 
@@ -234,7 +234,7 @@ async function show(target, { focusEnd = true, keepPlace = false } = {}) {
     await Promise.all([...uploads]);
     if (seq !== navSeq) return;
   }
-  save();
+  save({ final: true });
   const key = cacheKey(target);
   if (inFlight.has(key)) { await saveChain; if (seq !== navSeq) return; } // back to a card that's still saving
   const retrying = unsaved.get(key); // a card whose save failed: show what you wrote, not the old version
@@ -247,7 +247,7 @@ async function show(target, { focusEnd = true, keepPlace = false } = {}) {
     if (seq !== navSeq) return;
   }
   if (r.error) { status(r.error, { error: true }); return; }
-  save(); // anything typed into the old card while this one loaded belongs to the old card
+  save({ final: true }); // anything typed into the old card while this one loaded belongs to the old card
   if (!el('status').classList.contains('error')) status('');
   followToday = target.kind === 'journal' && target.id === today();
   applyRemote(r, { keepSelection: false });
@@ -652,6 +652,8 @@ function load(result, { keepSelection } = {}) {
     });
   }
   dirty = false;
+  composeBase = null; // a composition in the card it replaces is over
+  dirtyBeforeCompose = false;
   updateCount();
 }
 
@@ -694,8 +696,33 @@ function onLocalChange() {
   if (loadingRemote) return;
   dirty = true;
   lastEdit = Date.now();
-  scheduleSave();
+  if (!view.composing) scheduleSave(); // half-typed IME text isn't saved: see compositionend
 }
+
+// MARK: IME composition
+//
+// While an input method composes (Pinyin letters underlined, waiting for a choice), the doc holds
+// those letters. They are never saved: saves wait for compositionend. A flush meanwhile (hide,
+// quit) saves the text as it was when the composition began.
+
+let composeBase = null;          // the doc when the composition began: committed text only
+let dirtyBeforeCompose = false;  // it had edits not handed to the save queue yet
+document.addEventListener('compositionstart', () => {
+  if (!view) return;
+  composeBase = view.state.doc;
+  dirtyBeforeCompose = dirty;
+}, true); // before ProseMirror's own handler touches the doc
+document.addEventListener('compositionend', () => {
+  // ProseMirror finishes the composition just after this event.
+  setTimeout(() => {
+    if (!view || view.composing) return;
+    // cancelled (Esc): nothing changed since the last save
+    if (!dirtyBeforeCompose && composeBase && view.state.doc.eq(composeBase)) dirty = false;
+    composeBase = null;
+    dirtyBeforeCompose = false;
+    if (dirty) scheduleSave();
+  }, 30);
+});
 
 function scheduleSave(delay = SAVE_DELAY) {
   clearTimeout(saveTimer);
@@ -722,9 +749,18 @@ function cardBusy(key) {
   return (current && cacheKey(current) === key && dirty) || inFlight.has(key) || unsaved.has(key);
 }
 
-/** Queues the card on screen if it has edits. Resolves when everything queued so far is done. */
-function save() {
+/** Queues the card on screen if it has edits. Resolves when everything queued so far is done.
+ *  During an IME composition it waits for compositionend; `final` (hide, quit) saves the text
+ *  committed before the composition instead. */
+function save({ final = false } = {}) {
   clearTimeout(saveTimer);
+  if (dirty && view && current && view.composing) {
+    if (final && dirtyBeforeCompose && composeBase) {
+      dirtyBeforeCompose = false;
+      queueSave({ target: { ...current }, doc: composeBase });
+    }
+    return saveChain;
+  }
   if (dirty && view && current) {
     dirty = false;
     queueSave({ target: { ...current }, doc: view.state.doc });
@@ -956,7 +992,15 @@ window.hf = {
   },
   shown() { onScreen = true; view?.focus(); poll(); if (current) refreshNearby(); },
   setVisible(v) { const was = onScreen; onScreen = v; if (v && !was) { poll(); if (current) refreshNearby(); } },
-  async flush() { await Promise.all([...uploads]); await save(); return true; },
+  async flush() { await Promise.all([...uploads]); await save({ final: true }); return true; },
+  /** In the notch with Keep on top off, the card folds when the pointer leaves, but not while
+   *  you're in the middle of something here: an IME composition, the ⌘O / ⌘P palette, the
+   *  / or @ menu, the link field or color picker, or a mention's popup. */
+  holdsOpen() {
+    const shown = (sel) => [...document.querySelectorAll(sel)].some((e) => e.style.display && e.style.display !== 'none');
+    return !!(view?.composing || palette.isOpen || (view && suggestKey.getState(view.state))
+      || shown('.popup.mention-pop') || shown('.popup.toolbar.palette') || document.querySelector('.popup.toolbar .link-input')?.offsetParent);
+  },
   undo() { if (view) { undo(view.state, view.dispatch); view.focus(); } },
   redo() { if (view) { redo(view.state, view.dispatch); view.focus(); } },
   /** Edit → Select All (⌘A): a text field in focus selects its own text. */

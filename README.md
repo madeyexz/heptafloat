@@ -37,7 +37,7 @@ Opening Heptabase, finding today's journal, and switching back breaks your flow.
 - **One shortcut to show and hide** — <kbd>⌃</kbd> <kbd>⌥</kbd> <kbd>J</kbd> by default; record any shortcut you like in Settings.
 - **Jump to any card** — <kbd>⌘</kbd> <kbd>O</kbd> searches your Heptabase cards, <kbd>⌘</kbd> <kbd>P</kbd> shows the cards you've opened in HeptaFloat, <kbd>⌘</kbd> <kbd>[</kbd> / <kbd>⌘</kbd> <kbd>]</kbd> step through them, <kbd>⌘</kbd> <kbd>.</kbd> pins one, <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>D</kbd> goes back to today.
 - **New card in a keystroke** — <kbd>⌘</kbd> <kbd>N</kbd> opens a blank card, like Raycast Notes. It's created in Heptabase as soon as you type (and not at all if you don't).
-- **A real Mac title bar** — the card's title in the middle and buttons for search (<kbd>⌘</kbd>), recent cards and a new card (<kbd>+</kbd>); the close button hides the card, like <kbd>Esc</kbd>.
+- **A real Mac title bar** — the card's title in the middle and buttons for *Keep on top* (the pin, filled when on), recent cards and a new card (<kbd>+</kbd>); the close button hides the card, like <kbd>Esc</kbd>.
 - **Or keep it in the notch** — turn on *Show the card in the notch* and the card waits in the MacBook notch; point at it or press the shortcut and it drops down.
 - **Images** — pictures from Heptabase show up, and you can paste or drop images into the card.
 - **Saves as you type** and stays in sync with Heptabase both ways — including cards you delete there.
@@ -113,8 +113,8 @@ Press <kbd>⌘</kbd> <kbd>,</kbd> while the card is in front.
 
 **General**
 - **Show / hide shortcut** — click it and press the keys you want. <kbd>Esc</kbd> cancels, **Reset** goes back to <kbd>⌃</kbd> <kbd>⌥</kbd> <kbd>J</kbd>.
-- **Keep on top of other windows** — on: the card stays open when you click into another app. Off: it tucks away as soon as you do. Either way it floats above everything, full-screen apps included.
-- **Show the card in the notch** — off by default. When on, the card waits in the MacBook notch (on a screen without one, a small pill at the top center). Point at it or press the shortcut and it drops down into the full card. If it opened because you pointed at it, it folds back when you move away. If you clicked into it or opened it with the shortcut, it stays until <kbd>Esc</kbd>, the shortcut or Close (with *Keep on top* off, also until you switch apps).
+- **Keep on top of other windows** — on: the card stays open when you click into another app. Off: it tucks away as soon as you do. Either way it floats above everything, full-screen apps included. The pin button on the card (<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>P</kbd>) does the same.
+- **Show the card in the notch** — off by default. When on, the card waits in the MacBook notch (on a screen without one, a small pill at the top center). Point at it or press the shortcut and it drops down into the full card, with a pin button beside the notch. With *Keep on top* on, it then stays until <kbd>Esc</kbd>, the shortcut or Close. With it off, it also folds back when you move the pointer away (or switch apps) — but not while you're typing with an input method, a menu or popup from the card is open, or you're dragging.
 - **Launch at login** — start HeptaFloat when you log in, so the shortcut always works.
 - **Add new cards to today's journal** — off by default. When on, every card you start with <kbd>⌘</kbd> <kbd>N</kbd> is linked at the end of today's journal, so it's easy to find later.
 - **Show in Dock and menu bar** — off by default, so HeptaFloat works like Raycast: no Dock icon, and the card pops up on whatever screen you're on without ever switching desktops. Turn it on for a Dock icon and the menus at the top of the screen (File, Format, View, Window, Help).

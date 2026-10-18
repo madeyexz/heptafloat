@@ -625,7 +625,7 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         super.init()
 
         // A real title bar: traffic lights (close hides the card), the card title in the middle,
-        // and New / Recent / Search buttons. macOS 26 draws the toolbar as Liquid Glass.
+        // and Keep on top / Recent / New buttons. macOS 26 draws the toolbar as Liquid Glass.
         panel.titleVisibility = .hidden // the centered toolbar label shows it instead
         panel.titlebarAppearsTransparent = true
         panel.toolbarStyle = .unified
@@ -683,8 +683,10 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
     // MARK: title bar
 
     private static let actionItems: [(NSToolbarItem.Identifier, String, String)] = [
-        (.init("search"), "command", "Search cards"), (.init("recent"), "square.on.square", "Recent cards"), (.init("newCard"), "plus", "New card"),
+        (.keepOnTop, "pin", "Keep on top"), (.init("recent"), "square.on.square", "Recent cards"), (.init("newCard"), "plus", "New card"),
     ]
+    /// The pin shows Keep on top: filled when on.
+    static var pinSymbol: String { Settings.pinned ? "pin.fill" : "pin" }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [.flexibleSpace, .cardTitle, .flexibleSpace, .cardActions]
@@ -702,7 +704,7 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
             // One group, so macOS 26 puts the three buttons in a single glass capsule.
             let items = Self.actionItems.map { id, symbol, title -> NSToolbarItem in
                 let item = NSToolbarItem(itemIdentifier: id)
-                item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+                item.image = NSImage(systemSymbolName: id == .keepOnTop ? Self.pinSymbol : symbol, accessibilityDescription: title)
                 item.label = title
                 item.isBordered = true
                 item.target = self
@@ -721,11 +723,11 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
     }
 
     @objc private func toolbarAction(_ item: NSToolbarItem) {
-        command(item.itemIdentifier.rawValue)
+        if item.itemIdentifier == .keepOnTop { togglePinned() } else { command(item.itemIdentifier.rawValue) }
     }
 
     /// Tooltips name each button's current shortcut, which can be changed in Settings.
-    private static func tip(for id: NSToolbarItem.Identifier) -> String {
+    static func tip(for id: NSToolbarItem.Identifier) -> String {
         let title = actionItems.first { $0.0 == id }?.2 ?? ""
         guard let keys = HotKey.parse(ShortcutDef.spec(id.rawValue))?.display else { return title }
         return "\(title) (\(keys))"
@@ -734,6 +736,14 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
     func updateToolbarTips() {
         guard let group = panel.toolbar?.items.first(where: { $0.itemIdentifier == .cardActions }) as? NSToolbarItemGroup else { return }
         for item in group.subitems { item.toolTip = Self.tip(for: item.itemIdentifier) }
+        notch?.updatePin()
+    }
+
+    /// Keep on top changed (pin button, ⌘⇧P, the View menu or Settings): every pin shows it.
+    private func updatePins() {
+        let group = panel.toolbar?.items.first { $0.itemIdentifier == .cardActions } as? NSToolbarItemGroup
+        group?.subitems.first { $0.itemIdentifier == .keepOnTop }?.image = NSImage(systemSymbolName: Self.pinSymbol, accessibilityDescription: "Keep on top")
+        notch?.pinChanged()
     }
 
     func setTitle(_ title: String) {
@@ -772,6 +782,7 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         let n = NotchController(web: web, cardSize: panel.contentRect(forFrameRect: panel.frame).size)
         n.panel.delegate = self
         n.onCollapsed = { [weak self] wasKey in self?.notchCollapsed(wasKey: wasKey) }
+        n.onPin = { [weak self] in self?.togglePinned() }
         notch = n
         n.install()
     }
@@ -873,6 +884,7 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         panel.level = .floating
         panel.hidesOnDeactivate = false // the card rarely makes HeptaFloat active, so this would hide it at once
         web.evaluateJavaScript("window.hf && window.hf.setPinned(\(Settings.pinned))")
+        updatePins()
     }
 
     func applyAppearance() {
@@ -1094,6 +1106,7 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
 extension NSToolbarItem.Identifier {
     static let cardTitle = Self("cardTitle")
     static let cardActions = Self("cardActions")
+    static let keepOnTop = Self("keepOnTop") // also the shortcut's id
 }
 
 /// Notch mode: the card lives in the MacBook notch. Collapsed, it is a black shape hugging the
@@ -1107,14 +1120,15 @@ final class NotchController: NSObject {
     private(set) var expanded = false
     /// Called after the card folds back into the notch, with whether it had keyboard focus.
     var onCollapsed: (Bool) -> Void = { _ in }
+    /// The pin button in the band beside the notch was clicked.
+    var onPin: () -> Void = {}
     private var hoverTimer: Timer?
     private var screenObserver: NSObjectProtocol?
-    private var keyObserver: NSObjectProtocol?
-    /// Opened with the hotkey or clicked into: stays open until Esc, the hotkey or Close. A card
-    /// that only opened under the pointer folds back when the pointer leaves.
-    private var stays = false
     private var leaveWatch: Timer?
     private var outsideSince: Date?
+    private var askingPage = false
+    /// Keep on top, in the band beside the notch (the open card has no title bar).
+    private let pinButton = FirstClickButton()
 
     /// Space under the notch before the card's text starts.
     var contentTop: CGFloat { 0 }
@@ -1137,6 +1151,31 @@ final class NotchController: NSObject {
         web.translatesAutoresizingMaskIntoConstraints = true
         shape.addSubview(web)
         shape.web = web
+        panel.allowsToolTipsWhenApplicationIsInactive = true
+        pinButton.isBordered = false
+        pinButton.imageScaling = .scaleProportionallyDown
+        pinButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        pinButton.target = self
+        pinButton.action = #selector(pinClicked)
+        pinButton.alphaValue = 0
+        shape.addSubview(pinButton)
+        shape.pinButton = pinButton
+        updatePin()
+    }
+
+    @objc private func pinClicked() { onPin() }
+
+    func updatePin() {
+        pinButton.image = NSImage(systemSymbolName: JournalWindow.pinSymbol, accessibilityDescription: "Keep on top")
+        pinButton.contentTintColor = Settings.pinned ? .labelColor : .secondaryLabelColor
+        pinButton.toolTip = JournalWindow.tip(for: .keepOnTop)
+    }
+
+    /// Pinned, an open card stays open; unpinned, it folds when the pointer leaves.
+    func pinChanged() {
+        updatePin()
+        guard expanded else { return }
+        if Settings.pinned { leaveWatch?.invalidate() } else { watchForLeaving() }
     }
 
     func install() {
@@ -1145,18 +1184,12 @@ final class NotchController: NSObject {
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.layOut(animated: false)
         }
-        // Clicking into the card gives it the keyboard: from then on it stays open.
-        keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main) { [weak self] _ in
-            guard let self, self.expanded else { return }
-            self.stays = true
-        }
     }
 
     func remove() {
         hoverTimer?.invalidate()
         leaveWatch?.invalidate()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
-        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
         panel.orderOut(nil)
         web.removeFromSuperview()
         shape.web = nil
@@ -1207,16 +1240,20 @@ final class NotchController: NSObject {
                 ctx.allowsImplicitAnimation = true
                 panel.animator().setFrame(target, display: true)
                 web.animator().alphaValue = expanded ? 1 : 0
+                pinButton.animator().alphaValue = expanded ? 1 : 0
             }
         } else {
             panel.setFrame(target, display: true)
             web.alphaValue = expanded ? 1 : 0
+            pinButton.alphaValue = expanded ? 1 : 0
         }
     }
 
     // MARK: open / close
 
     /// Opens the card. With focus (the hotkey), it takes the keyboard; hovering only shows it.
+    /// Pinned, it then stays open until Esc, the hotkey or Close; unpinned, it also folds when
+    /// the pointer leaves.
     func expand(focus: Bool) {
         hoverTimer?.invalidate()
         if !expanded {
@@ -1225,18 +1262,16 @@ final class NotchController: NSObject {
             layOut(animated: true)
         }
         if focus {
-            stays = true
             panel.makeKey()
             panel.makeFirstResponder(web)
         }
-        if !stays { watchForLeaving() }
+        if !Settings.pinned { watchForLeaving() }
     }
 
     func collapse() {
         hoverTimer?.invalidate()
         leaveWatch?.invalidate()
         guard expanded else { return }
-        stays = false
         let wasKey = panel.isKeyWindow
         expanded = false
         layOut(animated: true)
@@ -1256,19 +1291,28 @@ final class NotchController: NSObject {
         hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: false) { [weak self] _ in self?.expand(focus: false) }
     }
 
-    /// While a card opened by pointing is up, fold it back once the pointer has been away for a
-    /// moment. Whatever "Keep on top" says: that is for cards you opened on purpose. The menu bar
-    /// strip around the notch and the card's own menus count as still being there, and the
-    /// timer doesn't fire while a menu is being tracked.
+    /// Unpinned, the open card folds back once the pointer has been away for a moment, however
+    /// it was opened. The menu bar strip around the notch, the card's own menus and a held mouse
+    /// button (drag-selecting) count as still being there, and the timer doesn't fire while a
+    /// menu is being tracked. Before folding it asks the page, which holds it open during an IME
+    /// composition or while one of its popups is up.
     private func watchForLeaving() {
         guard leaveWatch == nil || !(leaveWatch!.isValid) else { return }
         outsideSince = nil
         leaveWatch = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
-            guard let self, self.expanded, !self.stays else { timer.invalidate(); return }
+            guard let self, self.expanded, !Settings.pinned else { timer.invalidate(); return }
             if self.pointerIsNear() { self.outsideSince = nil; return }
             let since = self.outsideSince ?? Date()
             self.outsideSince = since
-            if Date().timeIntervalSince(since) >= Self.leaveDelay { self.collapse() }
+            guard Date().timeIntervalSince(since) >= Self.leaveDelay, !self.askingPage else { return }
+            self.askingPage = true
+            self.web.evaluateJavaScript("!!(window.hf && window.hf.holdsOpen && window.hf.holdsOpen())") { [weak self] held, _ in
+                guard let self else { return }
+                self.askingPage = false
+                guard self.expanded, !Settings.pinned, self.outsideSince != nil, !self.pointerIsNear() else { return }
+                if held as? Bool == true { self.outsideSince = Date() } // ask again a moment after it lets go
+                else { self.collapse() }
+            }
         }
     }
 
@@ -1276,13 +1320,18 @@ final class NotchController: NSObject {
 
     private func pointerIsNear() -> Bool {
         let p = NSEvent.mouseLocation, card = panel.frame, notch = notchRect
-        if card.contains(p) { return true }
+        if card.contains(p) || NSEvent.pressedMouseButtons != 0 { return true }
         // the menu bar strip the card hangs from, a little wider than the card
         let strip = NSRect(x: card.minX - 40, y: notch.minY, width: card.width + 80, height: screen.frame.maxY - notch.minY)
         if strip.contains(p) { return true }
         // menus and other popups the card opens (context menu, tooltips)
         return NSApp.windows.contains { $0 !== panel && $0.isVisible && $0.level.rawValue >= NSWindow.Level.popUpMenu.rawValue && $0.frame.contains(p) }
     }
+}
+
+/// Acts on the first click, even while the card isn't the key window.
+final class FirstClickButton: NSButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 /// The black notch shape: concave "shoulders" where it meets the top of the screen, round
@@ -1295,6 +1344,7 @@ final class NotchShapeView: NSView {
     var contentSize = NSSize(width: 440, height: 560) { didSet { needsLayout = true } }
     var expanded = false { didSet { needsLayout = true } }
     weak var web: WKWebView?
+    weak var pinButton: NSButton?
     var onHover: (Bool) -> Void = { _ in }
     private let mask = CAShapeLayer()
     private var tracking: NSTrackingArea?
@@ -1332,6 +1382,11 @@ final class NotchShapeView: NSView {
         let inset: CGFloat = 16
         web?.frame = NSRect(x: ((w - contentSize.width) / 2 + inset).rounded(), y: notchHeight + 2,
                             width: contentSize.width - inset * 2, height: contentSize.height - notchHeight - 2 - 8)
+        // the pin sits in the band right of the notch, over the end of the text column
+        if let web, let pinButton {
+            let size: CGFloat = 26
+            pinButton.frame = NSRect(x: web.frame.maxX - size - 6, y: ((notchHeight - size) / 2).rounded(), width: size, height: size)
+        }
     }
 
     override func updateTrackingAreas() {
