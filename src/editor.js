@@ -12,7 +12,7 @@ import { inputRules, wrappingInputRule, textblockTypeInputRule, InputRule } from
 import { dropCursor } from 'prosemirror-dropcursor';
 import { gapCursor } from 'prosemirror-gapcursor';
 import { LIST_ITEMS, schemaFor, schemaCovers, serialize, titles, formatDate } from './schema.js';
-import { backspaceAtItemStart, deleteAtLineEnd, enterInItem, lift, selectBlock, setChecked, sink, toggleTodo } from './commands.js';
+import { backspaceAtItemStart, deleteAtLineEnd, enterInItem, itemLineDepth, lift, selectBlock, setChecked, sink, toggleTodo, turnInto } from './commands.js';
 import { caretPlugin, placeholderPlugin, suggestKey, suggestPlugin, toggleHighlight, toolbarPlugin } from './menus.js';
 import { createPalette } from './palette.js';
 import { renderSetup } from './setup.js';
@@ -303,11 +303,14 @@ function touchRecent(r, { keepPlace = false, card = current, doc = view?.state.d
 
 // MARK: shortcuts (remappable; the Swift host sends the user's choices)
 
+// '' = no keys (Link has none by default: ⌘K is the action menu, and pasting a URL over text links it).
 const bindings = {
-  bold: 'Mod-b', italic: 'Mod-i', underline: 'Mod-u', strike: 'Mod-Shift-x', code: 'Mod-e', link: 'Mod-k',
+  bold: 'Mod-b', italic: 'Mod-i', underline: 'Mod-u', strike: 'Mod-Shift-x', code: 'Mod-e', link: '',
   highlight: 'Mod-Shift-h', toggleTodo: 'Mod-Enter', paragraph: 'Mod-Alt-0',
   heading1: 'Mod-Alt-1', heading2: 'Mod-Alt-2', heading3: 'Mod-Alt-3',
-  pinCard: 'Mod-.', back: 'Mod-[', forward: 'Mod-]', newCard: 'Mod-n', search: 'Mod-o', recent: 'Mod-p', today: 'Mod-Shift-d', openInHeptabase: 'Mod-Shift-o',
+  actions: 'Mod-k', pinCard: 'Mod-.', back: 'Mod-[', forward: 'Mod-]', newCard: 'Mod-n', search: 'Mod-o', recent: 'Mod-p', today: 'Mod-Shift-d', openInHeptabase: 'Mod-Shift-o',
+  // the app's own (its menus take these keys first); here so the action menu can show them
+  settings: 'Mod-,', keepOnTop: 'Mod-Shift-p', biggerText: 'Mod-=', smallerText: 'Mod--', actualSize: 'Mod-0',
 };
 
 /** Named commands, run from the keymap here or from the app's menus. */
@@ -322,6 +325,7 @@ function commandFor(name, schema) {
     heading1: setBlockType(n.heading, { level: 1 }), heading2: setBlockType(n.heading, { level: 2 }),
     heading3: setBlockType(n.heading, { level: 3 }),
     search: run(() => palette.toggle('search')), recent: run(() => palette.toggle('recent')),
+    actions: run(() => palette.toggle('actions')),
     newCard: run(() => show({ kind: 'draft' })),
     pinCard: run(() => togglePin()),
     back: run(() => step(1)),     // ⌘[ — older
@@ -329,6 +333,90 @@ function commandFor(name, schema) {
     today: run(() => show({ kind: 'journal', id: today() })),
     openInHeptabase: run(() => { if (current?.kind !== 'draft') openInHeptabase(current?.id); }),
   }[name];
+}
+
+// MARK: ⌘K action menu
+
+/** "Mod-Shift-o" → ['⇧', '⌘', 'O'], in the Mac's modifier order. */
+function keyGlyphs(name) {
+  if (!name) return [];
+  const parts = name.split(/-(?!$)/), key = parts.pop();
+  const mods = [['Ctrl', '⌃'], ['Alt', '⌥'], ['Shift', '⇧'], ['Mod', '⌘']].filter(([m]) => parts.includes(m)).map(([, g]) => g);
+  return [...mods, { Enter: '↩', Space: 'Space' }[key] ?? key.toUpperCase()];
+}
+const keysFor = (id) => keyGlyphs(bindings[id]).join('');
+
+/** Whether ⌘[ (+1) / ⌘] (-1) has a card to go to, by the same rule as step(). */
+function canStep(direction) {
+  const list = recentList;
+  if (!list) return false;
+  const i = list.findIndex((c) => c.id === (navTarget?.id ?? current?.id));
+  return !!nextShowable(list, i < 0 ? (direction > 0 ? 0 : list.length - 1) : i + direction, direction);
+}
+
+/** The action menu's rows, leaving out the ones that can't apply right now. Each runs after the
+ *  menu has closed, with the editor focused at the selection it had. */
+function actionSections() {
+  const { state } = view, { schema, selection: sel } = state, { $from } = sel;
+  const card = current && current.kind !== 'draft';
+  const pinned = card && recentList?.find((c) => c.id === current.id)?.pinned;
+  const on = (cls) => (document.body.classList.contains(cls) ? 'On' : 'Off');
+  const command = (name) => () => commandFor(name, schema)(view.state, view.dispatch, view);
+  const app = (name) => () => post({ action: 'appCommand', name });
+  const row = (id, title, keywords, run, extra) => ({ id, title, keywords, run, keys: keyGlyphs(bindings[id]), ...extra });
+
+  // Format: the block the cursor is in (not the type it already is), and marks on a text selection.
+  const inText = $from.parent.isTextblock;
+  const d = itemLineDepth($from), item = d >= 0 ? $from.node(d).type.name : null;
+  const block = $from.parent.type.name, level = $from.parent.attrs.level;
+  let inQuote = false;
+  for (let k = $from.depth; k > 0; k--) if ($from.node(k).type.name === 'blockquote') inQuote = true;
+  const into = (id, title, keywords, name, attrs, already) => (inText && !already
+    ? row(id, `Turn into ${title}`, keywords, () => turnInto(view, name, attrs)) : null);
+  const textSel = !sel.empty && sel instanceof TextSelection;
+  const mark = (id, title, keywords, type, run = command(id)) => (textSel && type && toggleMark(type)(state)
+    ? row(id, title, keywords, run) : null);
+  const m = schema.marks;
+
+  return [
+    { title: 'Card', items: [
+      row('newCard', 'New card', 'new note create draft', command('newCard')),
+      row('search', 'Search cards', 'search find open', command('search')),
+      row('recent', 'Recent cards', 'recent history switch', command('recent')),
+      row('today', "Today's journal", 'today journal date', command('today')),
+      canStep(1) && row('back', 'Back', 'back previous older', command('back')),
+      canStep(-1) && row('forward', 'Forward', 'forward next newer', command('forward')),
+      card && row('openInHeptabase', 'Open in Heptabase', 'open heptabase app', command('openInHeptabase')),
+      card && row('pinCard', pinned ? 'Unpin card' : 'Pin card', 'pin unpin favorite recent', command('pinCard')),
+    ] },
+    { title: 'Window', items: [
+      row('keepOnTop', 'Keep on top', 'pin float always front', app('keepOnTop'), { state: on('pinned') }),
+      row('notchMode', 'Show in the notch', 'notch menu bar', app('notchMode'), { state: on('notch') }),
+      row('biggerText', 'Bigger text', 'zoom in larger font size', app('biggerText')),
+      row('smallerText', 'Smaller text', 'zoom out font size', app('smallerText')),
+      row('actualSize', 'Actual size', 'reset zoom font size 100', app('actualSize')),
+      row('settings', 'Settings', 'preferences options shortcuts', app('settings')),
+    ] },
+    { title: 'Format', items: [
+      into('paragraph', 'text', 'paragraph plain p', 'paragraph', null, block === 'paragraph' && !item),
+      into('heading1', 'heading 1', 'h1 title', 'heading', { level: 1 }, block === 'heading' && level === 1),
+      into('heading2', 'heading 2', 'h2 subtitle', 'heading', { level: 2 }, block === 'heading' && level === 2),
+      into('heading3', 'heading 3', 'h3', 'heading', { level: 3 }, block === 'heading' && level === 3),
+      into('todo', 'to-do', 'todo task checkbox check list', 'todo_list_item', null, item === 'todo_list_item'),
+      into('bullet', 'bulleted list', 'bullet ul unordered', 'bullet_list_item', null, item === 'bullet_list_item'),
+      into('numbered', 'numbered list', 'ol ordered number', 'numbered_list_item', null, item === 'numbered_list_item'),
+      into('toggleList', 'toggle list', 'fold collapse', 'toggle_list_item', null, item === 'toggle_list_item'),
+      into('quote', 'quote', 'blockquote', 'blockquote', null, inQuote),
+      into('codeBlock', 'code block', 'pre snippet', 'code_block', { params: '' }, block === 'code_block'),
+      mark('bold', 'Bold', 'strong b', m.strong),
+      mark('italic', 'Italic', 'em i', m.em),
+      mark('underline', 'Underline', 'u', m.underline),
+      mark('strike', 'Strikethrough', 'strike s', m.strike),
+      mark('code', 'Inline code', 'mono', m.code),
+      mark('highlight', 'Highlight', 'yellow color background', m.color),
+      mark('link', 'Add link', 'url href web', m.link),
+    ] },
+  ].map((s) => ({ ...s, items: s.items.filter(Boolean) }));
 }
 
 // MARK: card pickers (⌘P recent, ⌘O search)
@@ -347,11 +435,12 @@ const palette = createPalette({
   openInHeptabase: (card) => openInHeptabase(card.id),
   pin: (card, on) => call('pinCard', { id: card.id, pinned: on }),
   forget: (card) => call('forgetCard', { id: card.id }),
+  actions: () => (view ? actionSections() : []),
   onClose: () => view?.focus(),
   isPinKey: (e) => keyName(e) === normalize(bindings.pinCard),
   pickerFor: (e) => {
-    const key = keyName(e);
-    return key === normalize(bindings.search) ? 'search' : key === normalize(bindings.recent) ? 'recent' : null;
+    const key = keyName(e), is = (id) => bindings[id] && key === normalize(bindings[id]);
+    return is('search') ? 'search' : is('recent') ? 'recent' : is('actions') ? 'actions' : null;
   },
 });
 
@@ -451,7 +540,7 @@ function buildPlugins(schema) {
         .insert($s.before() + 1, n.paragraph.create());
     }),
   ];
-  const remappable = Object.fromEntries(Object.entries(bindings).map(([name, key]) => [key, commandFor(name, schema)]));
+  const remappable = Object.fromEntries(Object.entries(bindings).filter(([, key]) => key).map(([name, key]) => [key, commandFor(name, schema)]));
   return [
     // Typing over a selection that spans lines deletes it like Backspace does, so no empty
     // list item is left behind.
@@ -470,7 +559,7 @@ function buildPlugins(schema) {
       } },
     } }),
     suggestPlugin(searchCards),
-    toolbarPlugin((url) => post({ action: 'openURL', url })),
+    toolbarPlugin((url) => post({ action: 'openURL', url }), keysFor),
     inputRules({ rules }),
     keymap({
       ...remappable,
@@ -624,9 +713,10 @@ function load(result, { keepSelection } = {}) {
       scrollThreshold: scrollRoom(),
       scrollMargin: scrollRoom(),
       // Pasted or dropped images are imported into Heptabase, then inserted like Heptabase does.
-      handlePaste(_v, event) {
+      // A URL pasted over selected text links that text.
+      handlePaste(v, event) {
         const files = [...(event.clipboardData?.items || [])].filter((i) => i.kind === 'file' && i.type.startsWith('image/')).map((i) => i.getAsFile());
-        if (!files.length) return false;
+        if (!files.length) return linkSelection(v, event.clipboardData?.getData('text/plain'));
         event.preventDefault();
         files.forEach((f) => insertImage(f));
         return true;
@@ -656,6 +746,17 @@ function load(result, { keepSelection } = {}) {
   composeBase = null; // a composition in the card it replaces is over
   dirtyBeforeCompose = false;
   updateCount();
+}
+
+/** Pasting a single web or mailto URL over text selected in one line (not in code) puts the link
+ *  on the text instead of replacing it, as one undo step. Anything else pastes as usual. */
+function linkSelection(v, text) {
+  const href = text?.trim() ?? '';
+  const sel = v.state.selection, { $from, $to } = sel, link = v.state.schema.marks.link;
+  if (!/^(https?:\/\/|mailto:)\S+$/i.test(href) || sel.empty || !(sel instanceof TextSelection) || !$from.sameParent($to)
+      || $from.parent.type.spec.code || !link || !$from.parent.type.allowsMarkType(link)) return false;
+  v.dispatch(v.state.tr.addMark(sel.from, sel.to, link.create({ href, title: null, 'data-internal-href': null, edited: false })));
+  return true;
 }
 
 /** Uploads an image file to Heptabase (via the CLI) and inserts an image block that points to it. */
@@ -995,7 +1096,7 @@ window.hf = {
   setVisible(v) { const was = onScreen; onScreen = v; if (v && !was) { poll(); if (current) refreshNearby(); } },
   async flush() { await Promise.all([...uploads]); await save({ final: true }); return true; },
   /** In the notch with Keep on top off, the card folds when the pointer leaves, but not while
-   *  you're in the middle of something here: an IME composition, the ⌘O / ⌘P palette, the
+   *  you're in the middle of something here: an IME composition, the ⌘O / ⌘P / ⌘K palette, the
    *  / or @ menu, the link field or color picker, or a mention's popup. */
   holdsOpen() {
     const shown = (sel) => [...document.querySelectorAll(sel)].some((e) => e.style.display && e.style.display !== 'none');

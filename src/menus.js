@@ -243,11 +243,14 @@ export function toggleHighlight(state, dispatch) {
   return setColor(state, dispatch, 'background', highlighted ? null : 'yellow');
 }
 
-export function toolbarPlugin(onOpenLink) {
+/** keysFor(shortcut id) is its current keys, e.g. "⌘B", or '' when it has none. */
+export function toolbarPlugin(onOpenLink, keysFor = () => '') {
   let el = null, mode = null, render = () => {}; // mode: null | 'link' | 'color'
+  const tip = (title, id) => (keysFor(id) ? `${title} ${keysFor(id)}` : title);
   const buttons = [
-    ['strong', '<b>B</b>', 'Bold ⌘B'], ['em', '<i>I</i>', 'Italic ⌘I'], ['underline', '<u>U</u>', 'Underline ⌘U'],
-    ['strike', '<s>S</s>', 'Strikethrough ⌘⇧X'], ['code', '&lt;/&gt;', 'Code ⌘E'], ['link', '🔗', 'Link ⌘K'],
+    ['strong', '<b>B</b>', tip('Bold', 'bold')], ['em', '<i>I</i>', tip('Italic', 'italic')], ['underline', '<u>U</u>', tip('Underline', 'underline')],
+    ['strike', '<s>S</s>', tip('Strikethrough', 'strike')], ['code', '&lt;/&gt;', tip('Code', 'code')],
+    ['link', '🔗', `${tip('Link', 'link')} · or paste a URL over the text`],
   ];
   const isActive = (state, type) => {
     const { from, to, empty, $from } = state.selection;
@@ -311,8 +314,8 @@ export function toolbarPlugin(onOpenLink) {
             + `<div class="pl-label">Highlight</div><div class="sw-row">${swatches('background')}</div></div>`;
         } else {
           el.innerHTML = buttons.filter(([m]) => state.schema.marks[m])
-            .map(([m, html, title]) => `<button data-mark="${m}" title="${title}" class="${isActive(state, state.schema.marks[m]) ? 'on' : ''}">${html}</button>`).join('')
-            + (state.schema.marks.color ? '<button data-action="color" title="Highlight & color ⌘⇧H"><span class="hl">A</span></button>' : '');
+            .map(([m, html, title]) => `<button data-mark="${m}" title="${esc(title)}" class="${isActive(state, state.schema.marks[m]) ? 'on' : ''}">${html}</button>`).join('')
+            + (state.schema.marks.color ? `<button data-action="color" title="${esc(tip('Highlight & color', 'highlight'))}"><span class="hl">A</span></button>` : '');
         }
         el.style.display = mode === 'color' ? 'block' : 'flex';
         const a = v.coordsAtPos(sel.from), b = v.coordsAtPos(sel.to);

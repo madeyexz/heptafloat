@@ -89,7 +89,9 @@ Notes and journals open in the floating card and are editable just like today's 
 | Drag the top edge | Move it; drag any edge to resize (it remembers) |
 | `/` | Insert a block: to-do, heading, list, toggle, quote, code, divider, date |
 | `@` or `[[` | Mention a card |
+| <kbd>⌘</kbd> <kbd>K</kbd> | The action menu: every command for the card, the window and the text in one list, each with its shortcut. Type to filter (`h1`, `todo`, `pin`…), <kbd>↵</kbd> runs it, <kbd>Esc</kbd> closes |
 | Select text | Bold, italic, underline, strikethrough, code, link, **highlight & text color** |
+| Paste a URL over selected text | Link the text to it (the text stays) |
 | <kbd>⌘</kbd> <kbd>A</kbd> | Select the line you're in, like Heptabase; press again for the whole card |
 | <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>H</kbd> | Highlight the selection in yellow (press again to remove) |
 | <kbd>Tab</kbd> / <kbd>⇧</kbd> <kbd>Tab</kbd> | Indent / outdent list items — every selected one. On a plain line right below a bullet, <kbd>Tab</kbd> tucks it under that bullet |
@@ -128,7 +130,7 @@ When a new version is out, the card's footer says so — click it to open Settin
 
 <p align="center"><img src="docs/screenshot-update.png" width="420" alt="The card's footer: 358 characters · HeptaFloat 0.9.9 available"></p>
 
-**Shortcuts** — every keyboard shortcut in one place. Click one and press new keys to change it; HeptaFloat warns you if the keys are already taken. **Reset All Shortcuts** restores the defaults.
+**Shortcuts** — every keyboard shortcut in one place. Click one and press new keys to change it; HeptaFloat warns you if the keys are already taken. **Reset All Shortcuts** restores the defaults. *Link* has no keys by default (<kbd>⌘</kbd> <kbd>K</kbd> opens the action menu, which has *Add link*); give it some here if you like.
 
 <p align="center"><img src="docs/screenshot-shortcuts.png" width="420" alt="Settings → Shortcuts"></p>
 

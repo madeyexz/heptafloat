@@ -358,6 +358,7 @@ struct ShortcutDef {
 
     static let all: [ShortcutDef] = [
         .init(id: "toggle", title: "Show / hide HeptaFloat", group: "Anywhere", defaultSpec: "ctrl+opt+j", scope: .global),
+        .init(id: "actions", title: "Actions", group: "Cards", defaultSpec: "cmd+k", scope: .app),
         .init(id: "newCard", title: "New card", group: "Cards", defaultSpec: "cmd+n", scope: .app),
         .init(id: "search", title: "Search cards", group: "Cards", defaultSpec: "cmd+o", scope: .app),
         .init(id: "recent", title: "Recent cards", group: "Cards", defaultSpec: "cmd+p", scope: .app),
@@ -376,7 +377,7 @@ struct ShortcutDef {
         .init(id: "underline", title: "Underline", group: "Editing", defaultSpec: "cmd+u", scope: .editor),
         .init(id: "strike", title: "Strikethrough", group: "Editing", defaultSpec: "cmd+shift+x", scope: .editor),
         .init(id: "code", title: "Inline code", group: "Editing", defaultSpec: "cmd+e", scope: .editor),
-        .init(id: "link", title: "Link", group: "Editing", defaultSpec: "cmd+k", scope: .editor),
+        .init(id: "link", title: "Link", group: "Editing", defaultSpec: "", scope: .editor), // no keys: ⌘K is Actions
         .init(id: "highlight", title: "Highlight", group: "Editing", defaultSpec: "cmd+shift+h", scope: .editor),
         .init(id: "toggleTodo", title: "Tick / untick to-do", group: "Editing", defaultSpec: "cmd+return", scope: .editor),
         .init(id: "paragraph", title: "Plain text", group: "Editing", defaultSpec: "cmd+opt+0", scope: .editor),
@@ -395,15 +396,38 @@ struct ShortcutDef {
     ]
     static let reserved = ["cmd+z", "cmd+shift+z", "cmd+x", "cmd+c", "cmd+v", "cmd+a", "cmd+w", "cmd+h", "cmd+q"]
 
+    /// The keys you chose yourself (defaults aren't stored). ⌘K was Link's default before it
+    /// became the action menu's: a Link still on ⌘K is let go, unless you've moved Actions.
+    private static var chosen: [String: String] {
+        var map = UserDefaults.standard.dictionary(forKey: "shortcuts") as? [String: String] ?? [:]
+        if map["link"] == "cmd+k" && map["actions"] == nil { map["link"] = nil }
+        return map
+    }
+
+    /// The shortcut you gave `spec` to yourself, other than `id`.
+    static func chosenOwner(of spec: String, except id: String) -> ShortcutDef? {
+        let map = chosen, hotkey = UserDefaults.standard.string(forKey: "hotkey")
+        return all.first { $0.id != id && ($0.id == "toggle" ? hotkey : map[$0.id]) == spec }
+    }
+
+    /// A shortcut's keys; "" = none. A default gives way to keys you gave another shortcut.
     static func spec(_ id: String) -> String {
         if id == "toggle" { return Settings.hotkey }
-        return (UserDefaults.standard.dictionary(forKey: "shortcuts") as? [String: String])?[id]
-            ?? all.first { $0.id == id }?.defaultSpec ?? ""
+        if let mine = chosen[id] { return mine }
+        let fallback = all.first { $0.id == id }?.defaultSpec ?? ""
+        return fallback.isEmpty || chosenOwner(of: fallback, except: id) == nil ? fallback : ""
+    }
+
+    /// Why a shortcut has no keys although it has a default, for Settings.
+    static func yieldNote(_ id: String) -> String? {
+        guard let def = all.first(where: { $0.id == id }), !def.defaultSpec.isEmpty, spec(id).isEmpty,
+              let other = chosenOwner(of: def.defaultSpec, except: id) else { return nil }
+        return "\(HotKey.parse(def.defaultSpec)?.display ?? def.defaultSpec) is used by “\(other.title)”, so this has no keys. Pick other keys."
     }
 
     static func set(_ id: String, _ spec: String) {
         if id == "toggle" { Settings.hotkey = spec; return }
-        var map = UserDefaults.standard.dictionary(forKey: "shortcuts") as? [String: String] ?? [:]
+        var map = chosen
         map[id] = spec == all.first(where: { $0.id == id })?.defaultSpec ? nil : spec
         UserDefaults.standard.set(map, forKey: "shortcuts")
     }
@@ -1061,6 +1085,8 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
             (NSApp.delegate as? AppDelegate)?.showSettings()
         case "togglePin":
             togglePinned()
+        case "appCommand":
+            (NSApp.delegate as? AppDelegate)?.appCommand(body["name"] as? String ?? "")
         case "title":
             setTitle(body["title"] as? String ?? "")
         default: break
@@ -1907,7 +1933,7 @@ final class SettingsModel: ObservableObject {
     /// Assigns keys to a shortcut, refusing ones that are taken.
     func setShortcut(_ id: String, _ spec: String) {
         shortcutProblems[id] = nil
-        if let other = ShortcutDef.all.first(where: { $0.id != id && shortcuts[$0.id] == spec }) {
+        if !spec.isEmpty, let other = ShortcutDef.all.first(where: { $0.id != id && shortcuts[$0.id] == spec }) {
             shortcutProblems[id] = "Already used by “\(other.title)”."
             return
         }
@@ -2037,7 +2063,7 @@ struct ShortcutRow: View {
 
     var body: some View {
         LabeledContent(def.title) { ShortcutRecorder(model: model, def: def) }
-        if let problem = model.shortcutProblems[def.id] {
+        if let problem = model.shortcutProblems[def.id] ?? ShortcutDef.yieldNote(def.id) {
             Text(problem).font(.callout).foregroundStyle(.red)
         }
     }
@@ -2349,6 +2375,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func showLog() { NSWorkspace.shared.activateFileViewerSelecting([AppLog.url]) }
     @objc func reportIssue() { NSWorkspace.shared.open(URL(string: "https://github.com/madeyexz/heptafloat/issues/new")!) }
 
+    /// The Window part of the card's action menu (⌘K).
+    func appCommand(_ name: String) {
+        switch name {
+        case "keepOnTop": togglePinned()
+        case "notchMode": settings.setNotchMode(!Settings.notchMode) // as the toggle in Settings
+        case "biggerText": biggerText()
+        case "smallerText": smallerText()
+        case "actualSize": resetText()
+        case "settings": showSettings()
+        default: break
+        }
+    }
+
     /// Card and editor commands run in the editor; the card comes forward first if needed.
     @objc func runCommand(_ item: NSMenuItem) {
         guard let name = item.representedObject as? String else { return }
@@ -2431,6 +2470,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             _ = shortcut(m, "newCard", "New Card")
             _ = shortcut(m, "search", "Search Cards…")
             _ = shortcut(m, "recent", "Recent Cards…")
+            _ = shortcut(m, "actions", "Actions…")
             _ = shortcut(m, "today", "Today's Journal")
             _ = shortcut(m, "pinCard", "Pin / Unpin Card")
             _ = shortcut(m, "back", "Back")
