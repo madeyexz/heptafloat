@@ -598,6 +598,13 @@ final class TitleLabel: NSTextField {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+/// The input method puts its candidate window one level above the level the text view
+/// reports, but never below the Dock. WKWebView doesn't report one, so in the notch (above the
+/// menu bar) the Pinyin candidates ended up under the card. NSTextView answers the same way.
+final class CardWebView: WKWebView {
+    @objc func windowLevel() -> Int { window?.level.rawValue ?? NSWindow.Level.normal.rawValue }
+}
+
 final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate, NSWindowDelegate, NSToolbarDelegate {
     let panel: FloatPanel
     let web: WKWebView
@@ -614,7 +621,7 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
                            backing: .buffered, defer: false)
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(HeptabaseFileScheme(), forURLScheme: HeptabaseFileScheme.scheme) // the configuration keeps it
-        web = WKWebView(frame: .zero, configuration: config)
+        web = CardWebView(frame: .zero, configuration: config)
         super.init()
 
         // A real title bar: traffic lights (close hides the card), the card title in the middle,
