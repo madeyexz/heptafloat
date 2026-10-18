@@ -3,15 +3,16 @@
 # dist/HeptaFloat-<version>.zip for a GitHub release.
 set -e
 cd "$(dirname "$0")"
-VERSION=0.9.9
+VERSION=0.9.10
 APP=build/HeptaFloat.app
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" build/obj dist
 
-# Editor: ProseMirror bundle + page + fonts
+# Editor: ProseMirror bundle + page + fonts. As an IIFE, so minified names stay out of the page's
+# globals: a top-level function minified to `hf` was replaced by `window.hf` (0.9.9 broke IME input).
 bun install --silent
-bun build src/editor.js --outfile "$APP/Contents/Resources/editor.js" --minify >/dev/null
+bun build src/editor.js --outfile "$APP/Contents/Resources/editor.js" --minify --format=iife >/dev/null
 cp src/index.html "$APP/Contents/Resources/"
 cp -R src/fonts "$APP/Contents/Resources/"
 cp assets/AppIcon.icns "$APP/Contents/Resources/"
