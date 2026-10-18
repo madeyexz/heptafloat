@@ -1102,6 +1102,12 @@ final class NotchController: NSObject {
     var onCollapsed: (Bool) -> Void = { _ in }
     private var hoverTimer: Timer?
     private var screenObserver: NSObjectProtocol?
+    private var keyObserver: NSObjectProtocol?
+    /// Opened with the hotkey or clicked into: stays open until Esc, the hotkey or Close. A card
+    /// that only opened under the pointer folds back when the pointer leaves.
+    private var stays = false
+    private var leaveWatch: Timer?
+    private var outsideSince: Date?
 
     /// Space under the notch before the card's text starts.
     var contentTop: CGFloat { 0 }
@@ -1132,11 +1138,18 @@ final class NotchController: NSObject {
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.layOut(animated: false)
         }
+        // Clicking into the card gives it the keyboard: from then on it stays open.
+        keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main) { [weak self] _ in
+            guard let self, self.expanded else { return }
+            self.stays = true
+        }
     }
 
     func remove() {
         hoverTimer?.invalidate()
+        leaveWatch?.invalidate()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
         panel.orderOut(nil)
         web.removeFromSuperview()
         shape.web = nil
@@ -1205,14 +1218,18 @@ final class NotchController: NSObject {
             layOut(animated: true)
         }
         if focus {
+            stays = true
             panel.makeKey()
             panel.makeFirstResponder(web)
         }
+        if !stays { watchForLeaving() }
     }
 
     func collapse() {
         hoverTimer?.invalidate()
+        leaveWatch?.invalidate()
         guard expanded else { return }
+        stays = false
         let wasKey = panel.isKeyWindow
         expanded = false
         layOut(animated: true)
@@ -1224,20 +1241,40 @@ final class NotchController: NSObject {
         onCollapsed(wasKey)
     }
 
-    /// Hovering the notch opens the card; moving away closes it again, unless "Keep on top" is
-    /// on or you're typing in it.
+    /// Pointing at the notch opens the card (brushing past doesn't: the pointer has to rest there
+    /// a moment). Leaving is handled by watchForLeaving.
     private func hovered(_ inside: Bool) {
         hoverTimer?.invalidate()
-        if inside {
-            guard !expanded else { return }
-            hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: false) { [weak self] _ in self?.expand(focus: false) }
-        } else {
-            guard expanded, !Settings.pinned, !panel.isKeyWindow else { return }
-            hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
-                guard let self, !Settings.pinned, !self.panel.isKeyWindow else { return }
-                self.collapse()
-            }
+        guard inside, !expanded else { return }
+        hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: false) { [weak self] _ in self?.expand(focus: false) }
+    }
+
+    /// While a card opened by pointing is up, fold it back once the pointer has been away for a
+    /// moment. Whatever "Keep on top" says: that is for cards you opened on purpose. The menu bar
+    /// strip around the notch and the card's own menus count as still being there, and the
+    /// timer doesn't fire while a menu is being tracked.
+    private func watchForLeaving() {
+        guard leaveWatch == nil || !(leaveWatch!.isValid) else { return }
+        outsideSince = nil
+        leaveWatch = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
+            guard let self, self.expanded, !self.stays else { timer.invalidate(); return }
+            if self.pointerIsNear() { self.outsideSince = nil; return }
+            let since = self.outsideSince ?? Date()
+            self.outsideSince = since
+            if Date().timeIntervalSince(since) >= Self.leaveDelay { self.collapse() }
         }
+    }
+
+    static let leaveDelay: TimeInterval = 0.4
+
+    private func pointerIsNear() -> Bool {
+        let p = NSEvent.mouseLocation, card = panel.frame, notch = notchRect
+        if card.contains(p) { return true }
+        // the menu bar strip the card hangs from, a little wider than the card
+        let strip = NSRect(x: card.minX - 40, y: notch.minY, width: card.width + 80, height: screen.frame.maxY - notch.minY)
+        if strip.contains(p) { return true }
+        // menus and other popups the card opens (context menu, tooltips)
+        return NSApp.windows.contains { $0 !== panel && $0.isVisible && $0.level.rawValue >= NSWindow.Level.popUpMenu.rawValue && $0.frame.contains(p) }
     }
 }
 
