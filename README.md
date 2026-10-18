@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>Today's Heptabase journal, one keystroke away.</b><br>
-  A small floating card that sits above your other windows — jot a thought, tick a to-do, and get back to work.
+  A small card that floats above your other windows — or waits in your MacBook's notch. Jot a thought, tick a to-do, and get back to work.
 </p>
 
 <p align="center">
@@ -15,15 +15,15 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo.gif" width="560" alt="Typing a to-do with the / menu, mentioning a card with @, and ticking it off"><br>
-  <a href="docs/demo-4x3.mp4"><b>▶ Watch the 1-minute tour of every feature</b></a>
+  <img src="docs/notch.gif" width="720" alt="Pointing at the MacBook notch drops the journal card down; moving away folds it back; dragging its bottom edge and corner resizes it"><br>
+  <a href="docs/notch-demo.mp4"><b>▶ Watch the 30-second demo</b></a> &nbsp;·&nbsp; <a href="docs/demo-4x3.mp4">the 1-minute tour of the editor</a>
 </p>
 
 ---
 
 ## Why
 
-Opening Heptabase, finding today's journal, and switching back breaks your flow. HeptaFloat keeps today's journal in a little card you can pop up from anywhere — like Raycast Notes, but it **is** your Heptabase journal. Everything you type is saved straight into Heptabase, and anything you add in Heptabase shows up in the card.
+Opening Heptabase, finding today's journal, and switching back breaks your flow. HeptaFloat keeps today's journal in a little card you can pop up from anywhere — or tuck into the notch — like Raycast Notes, but it **is** your Heptabase journal. Everything you type is saved straight into Heptabase, and anything you add in Heptabase shows up in the card.
 
 ## What you get
 
@@ -37,18 +37,21 @@ Opening Heptabase, finding today's journal, and switching back breaks your flow.
 - **One shortcut to show and hide** — <kbd>⌃</kbd> <kbd>⌥</kbd> <kbd>J</kbd> by default; record any shortcut you like in Settings.
 - **Jump to any card** — <kbd>⌘</kbd> <kbd>O</kbd> searches your Heptabase cards, <kbd>⌘</kbd> <kbd>P</kbd> shows the cards you've opened in HeptaFloat, <kbd>⌘</kbd> <kbd>[</kbd> / <kbd>⌘</kbd> <kbd>]</kbd> step through them, <kbd>⌘</kbd> <kbd>.</kbd> pins one, <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>D</kbd> goes back to today.
 - **New card in a keystroke** — <kbd>⌘</kbd> <kbd>N</kbd> opens a blank card, like Raycast Notes. It's created in Heptabase as soon as you type (and not at all if you don't).
-- **A real Mac title bar** — the card's title in the middle and buttons for *Keep on top* (the pin, filled when on), recent cards and a new card (<kbd>+</kbd>); the close button hides the card, like <kbd>Esc</kbd>.
-- **Or keep it in the notch** — turn on *Show the card in the notch* and the card waits in the MacBook notch; point at it or press the shortcut and it drops down.
+- **Lives in the notch, if you like** — turn on *Show the card in the notch* and the card waits in the MacBook notch. Point at it or press the shortcut and it drops down; move away or click elsewhere and it folds back. Drag its bottom edge or corners to resize it. It fits the notch at any display scaling.
+- **A real Mac title bar** — the card's title in the middle and a glass button group for *Keep on top* (the pin, filled when on), recent cards and a new card (<kbd>+</kbd>). Drag the bar to move the card; the close button hides it, like <kbd>Esc</kbd>.
+- **<kbd>⌘</kbd> <kbd>K</kbd> for everything** — one searchable list of every action for the card, the window and the text, each with its shortcut.
+- **Paste a link onto text** — select some words and paste a URL; the words become a link.
+- **Chinese, Japanese and other input methods** work as in any Mac app, in the floating card and in the notch.
 - **Images** — pictures from Heptabase show up, and you can paste or drop images into the card.
 - **Saves as you type** and stays in sync with Heptabase both ways — including cards you delete there.
 - **Always today's page** — at midnight it moves to the new day's journal on its own.
-- **Simple settings** — every shortcut, theme, text size, keep on top, launch at login, and a check that Heptabase is connected.
+- **Simple settings** — every shortcut, theme, text size, keep on top, notch mode, launch at login, and a check that Heptabase is connected.
 - **Updates itself** — when a new version is out, the card's footer says so; click **Update** in Settings and HeptaFloat downloads it, checks it, and restarts into it.
 
 ## Install
 
 1. **Download** `HeptaFloat-x.y.z.zip` from the [latest release](https://github.com/madeyexz/heptafloat/releases/latest) and double-click it to unzip.
-2. **Drag `HeptaFloat`** into your **Applications** folder (it needs to live there to update itself).
+2. **Drag `HeptaFloat`** into your **Applications** folder — `/Applications` or the one in your home folder (it needs to live there to update itself).
 3. **Open it.** Because HeptaFloat isn't from the App Store, macOS will warn you the first time:
    - Click **Done** (or **Cancel**) on the warning.
    - Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to HeptaFloat.
@@ -85,8 +88,9 @@ Notes and journals open in the floating card and are editable just like today's 
 | Do this | To |
 |---|---|
 | <kbd>⌃</kbd> <kbd>⌥</kbd> <kbd>J</kbd> | Show or hide the card from any app |
-| <kbd>Esc</kbd> | Hide it and go back to what you were doing |
-| Drag the top edge | Move it; drag any edge to resize (it remembers) |
+| <kbd>Esc</kbd> | Hide it (or fold it into the notch) and go back to what you were doing |
+| Drag the title bar | Move the card; drag any edge to resize it (it remembers). In the notch: drag the bottom edge or a bottom corner |
+| Point at the notch | Open the card in notch mode; move away or click elsewhere to fold it (unless *Keep on top* is on) |
 | `/` | Insert a block: to-do, heading, list, toggle, quote, code, divider, date |
 | `@` or `[[` | Mention a card |
 | <kbd>⌘</kbd> <kbd>K</kbd> | The action menu: every command for the card, the window and the text in one list, each with its shortcut. Type to filter (`h1`, `todo`, `pin`…), <kbd>↵</kbd> runs it, <kbd>Esc</kbd> closes |
@@ -103,6 +107,7 @@ Notes and journals open in the floating card and are editable just like today's 
 | <kbd>⌘</kbd> <kbd>O</kbd> / <kbd>⌘</kbd> <kbd>P</kbd> | Search cards / recent cards |
 | <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>D</kbd> | Today's journal |
 | <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>O</kbd> | Open the current card in Heptabase |
+| <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>P</kbd> | Keep on top on / off (the pin in the title bar) |
 | <kbd>⌘</kbd> <kbd>=</kbd> / <kbd>⌘</kbd> <kbd>-</kbd> | Bigger / smaller text |
 
 You can also type Markdown: `- ` bullets, `1. ` numbers, `[] ` to-dos, `# ` headings, `> ` quotes, `---` dividers.
@@ -111,12 +116,12 @@ You can also type Markdown: `- ` bullets, `1. ` numbers, `[] ` to-dos, `# ` head
 
 Press <kbd>⌘</kbd> <kbd>,</kbd> while the card is in front.
 
-<p align="center"><img src="docs/screenshot-settings.png" width="420" alt="HeptaFloat Settings → General: shortcut, keep on top, launch at login, add new cards to today's journal, show in Dock, theme, text size, Heptabase connection"></p>
+<p align="center"><img src="docs/screenshot-settings.png" width="420" alt="HeptaFloat Settings → General: shortcut, keep on top, launch at login, add new cards to today's journal, show in Dock, theme, text size, Heptabase connection (taken before the notch setting was added)"></p>
 
 **General**
 - **Show / hide shortcut** — click it and press the keys you want. <kbd>Esc</kbd> cancels, **Reset** goes back to <kbd>⌃</kbd> <kbd>⌥</kbd> <kbd>J</kbd>.
-- **Keep on top of other windows** — on: the card stays open when you click into another app. Off: it tucks away as soon as you do. Either way it floats above everything, full-screen apps included. The pin button on the card (<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>P</kbd>) does the same.
-- **Show the card in the notch** — off by default. When on, the card waits in the MacBook notch (on a screen without one, a small pill at the top center). Point at it or press the shortcut and it drops down into the full card; drag its bottom edge or a bottom corner to make it taller or wider (it stays centered under the notch, and keeps that size). With *Keep on top* on, it then stays until <kbd>Esc</kbd>, the shortcut or Close. With it off, a click outside the card folds it back at once, and so does moving the pointer away — but not while you're typing with an input method, a menu or popup from the card is open, or you're dragging.
+- **Keep on top of other windows** — on: the card stays open when you click into another app. Off: it tucks away as soon as you do. Either way it floats above everything, full-screen apps included. The pin in the card's title bar (<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>P</kbd>) does the same. In the notch, it decides whether the open card stays put (on) or folds when you move away (off).
+- **Show the card in the notch** — off by default (also in the <kbd>⌘</kbd> <kbd>K</kbd> menu). When on, the card waits in the MacBook notch (on a screen without one, a small pill at the top center). It's always dark there, to match the notch, and has no title bar — use the shortcuts or <kbd>⌘</kbd> <kbd>K</kbd>. Point at it or press the shortcut and it drops down into the full card; drag its bottom edge or a bottom corner to make it taller or wider (it stays centered under the notch, and keeps that size). With *Keep on top* on, it then stays until <kbd>Esc</kbd>, the shortcut or Close. With it off, a click outside the card folds it back at once, and so does moving the pointer away — but not while you're typing with an input method, a menu or popup from the card is open, or you're dragging.
 - **Launch at login** — start HeptaFloat when you log in, so the shortcut always works.
 - **Add new cards to today's journal** — off by default. When on, every card you start with <kbd>⌘</kbd> <kbd>N</kbd> is linked at the end of today's journal, so it's easy to find later.
 - **Show in Dock and menu bar** — off by default, so HeptaFloat works like Raycast: no Dock icon, and the card pops up on whatever screen you're on without ever switching desktops. Turn it on for a Dock icon and the menus at the top of the screen (File, Format, View, Window, Help).
@@ -128,7 +133,7 @@ Press <kbd>⌘</kbd> <kbd>,</kbd> while the card is in front.
 
 When a new version is out, the card's footer says so — click it to open Settings, then **Update**.
 
-<p align="center"><img src="docs/screenshot-update.png" width="420" alt="The card's footer: 358 characters · HeptaFloat 0.9.9 available"></p>
+<p align="center"><img src="docs/screenshot-update.png" width="420" alt="The card's footer: 358 characters · a new HeptaFloat version available"></p>
 
 **Shortcuts** — every keyboard shortcut in one place. Click one and press new keys to change it; HeptaFloat warns you if the keys are already taken. **Reset All Shortcuts** restores the defaults. *Link* has no keys by default (<kbd>⌘</kbd> <kbd>K</kbd> opens the action menu, which has *Add link*); give it some here if you like.
 
@@ -140,7 +145,7 @@ When a new version is out, the card's footer says so — click it to open Settin
 
 ```mermaid
 flowchart LR
-  K["Your shortcut<br/>(⌃⌥J by default)"] --> C["HeptaFloat card<br/>floats over any screen"]
+  K["Your shortcut<br/>(⌃⌥J by default)<br/>or point at the notch"] --> C["HeptaFloat card<br/>floats over any screen<br/>or drops from the notch"]
   C <-->|"read · save as you type<br/>check for changes every 3s (while visible)"| CLI["Heptabase CLI"]
   C -->|"⌘N new card · ⌘O search<br/>paste images"| CLI
   CLI <--> H["Heptabase app<br/>(must be running)"]
@@ -177,21 +182,25 @@ HeptaFloat runs entirely on your Mac. It reads and saves your journal through th
 
 **How do I update?** From 0.9.8 on, the card's footer tells you when a new version is out; click it, then **Update** in Settings. If Update says it can't replace HeptaFloat, make sure the app is in your Applications folder and you opened it from there — or download the [latest release](https://github.com/madeyexz/heptafloat/releases/latest) and replace the app by hand.
 
+**My Mac has no notch. Can I use notch mode?** Yes — on a screen without a notch, the card waits as a small pill at the top center of the screen and works the same way.
+
+**Can I type Chinese or Japanese?** Yes. Input methods work in the floating card and in the notch, and HeptaFloat waits until you've picked a word before it saves, so half-typed Pinyin or kana never reaches Heptabase.
+
 **Is this made by Heptabase?** No — it's an independent, unofficial companion app.
 
 ---
 
 ## For developers
 
-HeptaFloat is a native Swift shell (non-activating floating `NSPanel`, global hotkey, SwiftUI Settings) around a [ProseMirror](https://prosemirror.net) editor in a `WKWebView`. It reads and writes cards with the Heptabase CLI (`heptabase journal|note read/save`, `note create`, `file import/export`, `card list/properties`), with md5 conflict checks. Saves are a queue of per-card snapshots, so switching cards never waits on a save.
+HeptaFloat is a native Swift shell (non-activating floating `NSPanel` with a unified `NSToolbar`, a borderless notch panel sized from the screen's safe area, global hotkey, SwiftUI Settings) around a [ProseMirror](https://prosemirror.net) editor in a `WKWebView`. The editor is bundled as one IIFE, so minified names never leak into the page's globals (where they once clashed with `window.hf`, the bridge to Swift). It reads and writes cards with the Heptabase CLI (`heptabase journal|note read/save`, `note create`, `file import/export`, `card list/properties`), with md5 conflict checks. Saves are a queue of per-card snapshots, so switching cards never waits on a save.
 
 ```
-Sources/main.swift   app shell: window, hotkey, menus, Settings, CLI bridge, updater
+Sources/main.swift   app shell: window, title bar, notch mode, hotkey, menus, Settings, CLI bridge, updater
 src/schema.js        lossless ProseMirror schema for Heptabase's card format
 src/editor.js        editor state, autosave, sync, day rollover
 src/commands.js      list editing (indent, split, toggle…)
 src/menus.js         "/" menu, @ mentions, selection toolbar, placeholders
-src/palette.js       ⌘O search and ⌘P recent-card pickers
+src/palette.js       ⌘O search, ⌘P recent cards and the ⌘K action menu
 src/setup.js         the setup checklist shown until Heptabase is reachable
 src/index.html       styles (Heptabase theme tokens, light/dark)
 preview/             run the editor in a browser with a demo journal
@@ -201,7 +210,7 @@ preview/             run the editor in a browser with a demo journal
 
 **Try the editor without Heptabase:** `./preview/serve.sh`, then open <http://localhost:8765/stage.html>.
 
-**Regenerate screenshots and the demo:** `./preview/capture.sh` and `./preview/record-demo.sh` (need `agent-browser` and `ffmpeg`). `open HeptaFloat.app --args --show-settings` opens Settings directly, for its screenshot; `--update-url <url>` checks another address instead of GitHub's latest release (for testing updates). On Linux, start the browser with `agent-browser --init-script preview/mac-platform.js open about:blank` first so the ⌘ shortcuts work; `FPS=24 ./preview/record-demo.sh` if the recording can't keep up.
+**Regenerate screenshots and the demo:** `./preview/capture.sh` and `./preview/record-demo.sh` (need `agent-browser` and `ffmpeg`). They show the editor in a browser, so they don't include the native title bar or the notch; `docs/notch.gif` and `docs/notch-demo.mp4` are screen recordings of the real app on a MacBook. `open HeptaFloat.app --args --show-settings` opens Settings directly, for its screenshot; `--update-url <url>` checks another address instead of GitHub's latest release (for testing updates). On Linux, start the browser with `agent-browser --init-script preview/mac-platform.js open about:blank` first so the ⌘ shortcuts work; `FPS=24 ./preview/record-demo.sh` if the recording can't keep up.
 
 **Release:** bump `VERSION` in `build.sh`, run `./build.sh`, then `gh release create vX.Y.Z dist/HeptaFloat-X.Y.Z.zip`. The updater relies on that shape: it reads the *latest* release (not drafts or pre-releases), takes the version from the `vX.Y.Z` tag, downloads the asset named exactly `HeptaFloat-X.Y.Z.zip`, checks it against the SHA-256 GitHub records on upload, and only installs a signed app whose `CFBundleShortVersionString` matches the tag.
 
