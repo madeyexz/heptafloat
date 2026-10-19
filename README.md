@@ -59,7 +59,7 @@ Opening Heptabase, finding today's journal, and switching back breaks your flow.
 ## Install
 
 1. **Download** `HeptaFloat-x.y.z.zip` from the [latest release](https://github.com/madeyexz/heptafloat/releases/latest) and double-click it to unzip.
-2. **Drag `HeptaFloat`** into your **Applications** folder — `/Applications` or the one in your home folder (it needs to live there to update itself).
+2. **Drag `HeptaFloat`** into your **Applications** folder — `/Applications` or the one in your home folder (it needs to live there to update itself). If you open it from somewhere else, such as Downloads, HeptaFloat offers to move itself there.
 3. **Open it.** Because HeptaFloat isn't from the App Store, macOS will warn you the first time:
    - Click **Done** (or **Cancel**) on the warning.
    - Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to HeptaFloat.

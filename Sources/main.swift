@@ -285,6 +285,11 @@ enum Settings {
         get { defaults.bool(forKey: "notchMode") }
         set { defaults.set(newValue, forKey: "notchMode") }
     }
+    /// Keep on top as it was in the floating card, saved while the card is in the notch.
+    static var pinnedBeforeNotch: Bool? {
+        get { defaults.object(forKey: "pinnedBeforeNotch") as? Bool }
+        set { defaults.set(newValue, forKey: "pinnedBeforeNotch") }
+    }
 
     static var checkForUpdates: Bool {
         get { defaults.object(forKey: "checkForUpdates") as? Bool ?? true }
@@ -1891,6 +1896,106 @@ final class Updater: ObservableObject {
     }
 }
 
+// MARK: - Move to Applications
+
+/// Opened from anywhere else (usually Downloads), HeptaFloat offers to move itself into the
+/// Applications folder. Out there macOS often runs it from a temporary read-only copy, and then it
+/// can't update itself.
+enum MoveToApplications {
+    private static let dontAskKey = "dontOfferMoveToApplications"
+    private static let userFolder = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Applications")
+
+    /// Asks, and moves if you agree. True when the moved copy is starting and this one should quit.
+    static func offerIfNeeded() -> Bool {
+        let running = Bundle.main.bundleURL
+        guard running.pathExtension == "app", !UserDefaults.standard.bool(forKey: dontAskKey) else { return false }
+        let app = originalURL(of: running) ?? running
+        let inApplications = ["/Applications", userFolder.path].contains { app.resolvingSymlinksInPath().path.hasPrefix($0 + "/") }
+        // Another HeptaFloat already running (likely the one in Applications) keeps its copy.
+        let another = NSRunningApplication.runningApplications(withBundleIdentifier: Updater.bundleID)
+            .contains { $0.processIdentifier != getpid() }
+        guard !inApplications, !another else { return false }
+
+        // Replaces a HeptaFloat already in your own Applications folder; otherwise the shared one, if allowed.
+        let fm = FileManager.default
+        let folder = fm.fileExists(atPath: userFolder.appendingPathComponent("HeptaFloat.app").path) || !fm.isWritableFile(atPath: "/Applications")
+            ? userFolder : URL(fileURLWithPath: "/Applications")
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Move HeptaFloat to the Applications folder?"
+        alert.informativeText = "HeptaFloat is in “\(app.deletingLastPathComponent().lastPathComponent)”. From the Applications folder it can update itself."
+        alert.addButton(withTitle: "Move to Applications")
+        alert.addButton(withTitle: "Not Now")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Don't ask again"
+        let answer = alert.runModal()
+        if alert.suppressionButton?.state == .on { UserDefaults.standard.set(true, forKey: dontAskKey) }
+        guard answer == .alertFirstButtonReturn else { return false }
+
+        do {
+            let moved = try move(app, into: folder)
+            AppLog.write("moved to \(moved.path)")
+            relaunch(moved)
+            return true
+        } catch {
+            AppLog.write("move to Applications failed: \(error.localizedDescription)")
+            let failed = NSAlert()
+            failed.messageText = "Couldn't move HeptaFloat"
+            failed.informativeText = "\(error.localizedDescription)\n\nDrag HeptaFloat into your Applications folder in Finder instead."
+            failed.runModal()
+            return false
+        }
+    }
+
+    /// Copies the app into the folder (an older HeptaFloat there goes to the Trash), then trashes the
+    /// original. A copy, not a move, so it also works from a read-only disk image.
+    private static func move(_ app: URL, into folder: URL) throws -> URL {
+        let fm = FileManager.default
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent("HeptaFloat.app")
+        let copy = folder.appendingPathComponent(".HeptaFloat-\(UUID().uuidString).app")
+        try fm.copyItem(at: app, to: copy)
+        do {
+            if fm.fileExists(atPath: target.path) { try fm.trashItem(at: target, resultingItemURL: nil) }
+            try fm.moveItem(at: copy, to: target)
+        } catch {
+            try? fm.removeItem(at: copy)
+            throw error
+        }
+        // You already allowed this app (Open Anyway). With the quarantine flag left on, macOS would
+        // run the moved copy from a temporary copy again.
+        let xattr = Process()
+        xattr.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+        xattr.arguments = ["-d", "-r", "com.apple.quarantine", target.path]
+        xattr.standardOutput = FileHandle.nullDevice
+        xattr.standardError = FileHandle.nullDevice
+        if (try? xattr.run()) != nil { xattr.waitUntilExit() }
+        try? fm.trashItem(at: app, resultingItemURL: nil)
+        return target
+    }
+
+    /// Where the app really is when macOS runs it from a temporary copy (App Translocation).
+    private static func originalURL(of url: URL) -> URL? {
+        typealias OriginalPath = @convention(c) (CFURL, UnsafeMutablePointer<Unmanaged<CFError>?>?) -> Unmanaged<CFURL>?
+        guard url.path.contains("/AppTranslocation/"),
+              let security = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_LAZY),
+              let symbol = dlsym(security, "SecTranslocateCreateOriginalPathForURL") else { return nil }
+        let original = unsafeBitCast(symbol, to: OriginalPath.self)
+        return original(url as CFURL, nil)?.takeRetainedValue() as URL?
+    }
+
+    /// Opens the moved app once this process is gone.
+    private static func relaunch(_ app: URL) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", "i=0; while kill -0 \"$1\" 2>/dev/null && [ $i -lt 150 ]; do sleep 0.2; i=$((i+1)); done; /usr/bin/open \"$2\"",
+                       "sh", "\(getpid())", app.path]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        try? p.run()
+    }
+}
+
 // MARK: - Settings window
 
 final class SettingsModel: ObservableObject {
@@ -1963,7 +2068,19 @@ final class SettingsModel: ObservableObject {
     func setAppearance(_ a: Appearance) { Settings.appearance = a; appearance = a; applyAppearance() }
     func setPinned(_ on: Bool) { Settings.pinned = on; pinned = on; applyPinned() }
     func setFontScale(_ v: Double) { Settings.fontScale = v; fontScale = Settings.fontScale; applyFontScale() }
-    func setNotchMode(_ on: Bool) { Settings.notchMode = on; notchMode = on; applyNotchMode() }
+    /// The notch card opens when you point at it, so Keep on top starts off there and the card
+    /// folds when you leave. Back in the floating card, Keep on top is as it was before.
+    func setNotchMode(_ on: Bool) {
+        guard on != Settings.notchMode else { return }
+        if on {
+            Settings.pinnedBeforeNotch = Settings.pinned
+            setPinned(false)
+        } else if let was = Settings.pinnedBeforeNotch {
+            Settings.pinnedBeforeNotch = nil
+            setPinned(was)
+        }
+        Settings.notchMode = on; notchMode = on; applyNotchMode()
+    }
     func setAddNewCardsToJournal(_ on: Bool) { Settings.addNewCardsToJournal = on; addNewCardsToJournal = on }
     func setCheckForUpdates(_ on: Bool) {
         Settings.checkForUpdates = on
@@ -2127,7 +2244,9 @@ struct GeneralSettings: View {
             } header: {
                 Text("General")
             } footer: {
-                Text("With “Keep on top” off, the card tucks away when you switch to another app.")
+                Text(model.notchMode
+                     ? "With “Keep on top” off, the card folds back into the notch when you point or click away."
+                     : "With “Keep on top” off, the card tucks away when you switch to another app.")
                     .font(.callout).foregroundStyle(.secondary)
             }
 
@@ -2252,6 +2371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ n: Notification) {
         AppLog.write("HeptaFloat \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev") started")
+        if MoveToApplications.offerIfNeeded() { NSApp.terminate(nil); return }
         journal = JournalWindow()
         settings.applyShortcuts = { [weak self] in self?.applyShortcuts() ?? false }
         settings.pauseHotkey = { [weak self] in self?.hotKey = nil }
@@ -2292,6 +2412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// sends one right after the hotkey has already toggled; ignore that echo, and give focus back
     /// if it re-activated a hidden card.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        guard journal != nil else { return false } // still asking to move to Applications
         if hotkeyJustFired {
             if !journal.isOpen { journal.returnFocus() }
         } else if journal.isShown && Date().timeIntervalSince(activatedAt) > 0.5 {
@@ -2309,6 +2430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Hidden by anything (⌘H, a launcher): save first. If a launcher bound to the same keys
     /// hid us right after our hotkey showed the card, undo that.
     func applicationDidHide(_ notification: Notification) {
+        guard journal != nil else { return }
         journal.flushSoon()
         // The notch stays put: hiding the app only folds the card back into it.
         if Settings.notchMode {
@@ -2320,13 +2442,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// ⌘-Tab into HeptaFloat while the card is hidden brings the card back.
     func applicationDidBecomeActive(_ notification: Notification) {
-        guard !hotkeyJustFired, !journal.isOpen, settingsWindow?.isVisible != true else { return }
+        guard journal != nil, !hotkeyJustFired, !journal.isOpen, settingsWindow?.isVisible != true else { return }
         journal.show()
     }
 
     /// Finishes saving before quitting. .terminateLater (not cancel) so a Mac restart, shutdown or
     /// log out carries on once the last save is done.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard journal != nil else { return .terminateNow } // quitting to move to Applications
         journal.flush { NSApp.reply(toApplicationShouldTerminate: true) }
         return .terminateLater
     }
