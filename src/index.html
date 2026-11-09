@@ -168,7 +168,9 @@
     border-radius: 3px; transition: background .1s, border-color .1s; }
   .todo > .mk:hover::before { border-color: var(--text-color); }
   /* due date on a to-do ("Today", "Tomorrow", "Oct 14") */
-  .todo { position: relative; }
+  /* Only with a date: on any positioned to-do, Safari deletes the whole item when an input method
+     replaces all its text (Pinyin in a new last to-do), and the word lands in a second to-do. */
+  .todo.has-due { position: relative; }
   .todo.has-due > .bd > :first-child { padding-right: 78px; }
   .todo > .due { position: absolute; right: 0; top: 3px; font-size: 13px; line-height: 1.5em; color: var(--link);
     user-select: none; -webkit-user-select: none; pointer-events: none; }
