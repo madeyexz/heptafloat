@@ -71,7 +71,7 @@ From 0.9.8 on, HeptaFloat updates itself (see **Settings → Version**). If you 
 
 HeptaFloat talks to Heptabase through Heptabase's built-in **CLI** ([Heptabase's guide](https://support.heptabase.com/en/articles/14715462-heptabase-cli)). You need:
 
-1. The **Heptabase desktop app**, version 1.91 or later, **running**.
+1. The **Heptabase desktop app**, version 1.117 or later, **running**.
 2. **Settings → AI Features → CLI** turned on in Heptabase.
 3. An **active Heptabase subscription** (Heptabase only lets other apps in for subscribed accounts).
 

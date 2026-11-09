@@ -5,7 +5,7 @@ const GUIDE = 'https://support.heptabase.com/en/articles/14715462-heptabase-cli'
 
 const STEPS = [
   { key: 'install', title: 'Install Heptabase',
-    body: 'HeptaFloat works through the Heptabase desktop app (version 1.91 or later).',
+    body: 'HeptaFloat works through the Heptabase desktop app (version 1.117 or later).',
     action: { label: 'Download Heptabase', url: 'https://heptabase.com/download' } },
   { key: 'open', title: 'Open Heptabase',
     body: 'Keep it running in the background — HeptaFloat reads and saves through it.',
@@ -26,7 +26,7 @@ export function renderSetup(el, status, { onOpenURL, onOpenHeptabase, onCheck })
     let { title, body, action } = s;
     if (s.key === 'install' && status.step === 'update') {
       title = 'Update Heptabase';
-      body = `You have version ${status.version}; HeptaFloat needs 1.91 or later.`;
+      body = `You have version ${status.version}; HeptaFloat needs 1.117 or later.`;
       action = { label: 'Download the latest Heptabase', url: 'https://heptabase.com/download' };
     }
     const button = state === 'now' && action

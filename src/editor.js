@@ -205,8 +205,8 @@ async function refreshNearby() {
 const todayKey = () => cacheKey({ kind: 'journal', id: today() });
 
 /** Puts a link to a new card at the end of today's journal, when that journal is open in the card. */
-function linkHereInJournal(cardId) {
-  if (!current || cacheKey(current) !== todayKey()) { call('linkInJournal', { id: cardId }); forgetJournal(); return; }
+function linkHereInJournal(cardId, title) {
+  if (!current || cacheKey(current) !== todayKey()) { call('linkInJournal', { id: cardId, title }); forgetJournal(); return; }
   const { schema } = view.state;
   const line = schema.nodes.paragraph.create(null, schema.nodes.card.create({ cardId }));
   view.dispatch(view.state.tr.insert(view.state.doc.content.size, line)); // saves like any edit
@@ -933,7 +933,7 @@ async function send(snap) {
     touchRecent(fresh ?? { title: cardTitle }, isShown() ? { keepPlace: !wasDraft } : { keepPlace: !wasDraft, card: target, doc });
     clearError();
     log(`saved ${target.kind} ${target.id}${wasDraft ? ' (new card)' : ''}`);
-    if (r.linkHere) linkHereInJournal(target.id);
+    if (r.linkHere) linkHereInJournal(target.id, fresh?.title || doc.firstChild?.textContent.trim() || 'Untitled');
     if (r.linkedInJournal) forgetJournal();
     if (r.journalError) status(`Card created, but not linked in today's journal — ${r.journalError}`, { error: true });
     else status(r.linkedInJournal || r.linkHere ? "Saved · linked in today's journal" : 'Saved');

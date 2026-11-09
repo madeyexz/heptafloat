@@ -29,6 +29,8 @@ enum Heptabase {
 
     static func run(_ args: [String]) throws -> [String: Any] {
         guard let cli = cliPath else { throw Failure(message: "Heptabase's CLI is off — turn it on in Heptabase → Settings → AI Features.") }
+        // An older CLI lacks commands HeptaFloat uses; failing here sends the card to its setup checklist.
+        if let version = outdatedVersion { throw Failure(message: "Heptabase \(version) is too old — HeptaFloat needs 1.117 or later.") }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: cli)
         p.arguments = args
@@ -168,11 +170,19 @@ enum Heptabase {
         }
     }
 
-    /// Links a card at the end of today's journal ({{card id}} is Heptabase's Markdown for a mention).
-    static func linkInTodaysJournal(_ cardId: String) throws {
+    /// Mentions a note card at the end of today's journal, creating the journal if needed. Heptabase
+    /// keeps only the card ID; the title is display text and must not contain "<" or a line break.
+    static func linkInTodaysJournal(_ cardId: String, title: String) throws {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        _ = try run(["journal", "append", formatter.string(from: Date()), "--content", "{{card \(cardId)}}"])
+        let text = title.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\n", with: " ")
+        let mention = "<hepta-mention type=\"card\" id=\"\(cardId)\">\(text)</hepta-mention>"
+        let input: [String: Any] = ["date": formatter.string(from: Date()), "edits": [["type": "append", "content": mention]]]
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("heptafloat-\(UUID().uuidString).json")
+        try JSONSerialization.data(withJSONObject: input).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        _ = try run(["journal", "edit", "--input", file.path])
     }
 
     /// Creates an empty note you wrote (not marked "Created by AI") and returns its ID.
@@ -1040,7 +1050,7 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
                     if linkHere { result["linkHere"] = true }
                     if linkInJournal {
                         // The card exists either way; a failed link only shows a note in the footer.
-                        do { try Heptabase.linkInTodaysJournal(id); result["linkedInJournal"] = true }
+                        do { try Heptabase.linkInTodaysJournal(id, title: title.isEmpty ? "Untitled" : title); result["linkedInJournal"] = true }
                         catch { result["journalError"] = Self.message(error) }
                     }
                     result["current"] = try Heptabase.fillNote(id, content: content)
@@ -1052,7 +1062,7 @@ final class JournalWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         case "linkInJournal":
             guard let id = body["id"] as? String else { return }
             Heptabase.queue.async {
-                do { try Heptabase.linkInTodaysJournal(id); self.reply(requestId, [:]) }
+                do { try Heptabase.linkInTodaysJournal(id, title: body["title"] as? String ?? "Untitled"); self.reply(requestId, [:]) }
                 catch { self.reply(requestId, ["error": Self.message(error)]) }
             }
         case "setupStatus":
@@ -1580,14 +1590,21 @@ extension Heptabase {
                 .map(URL.init(fileURLWithPath:)).first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
+    /// The installed Heptabase's version when it's older than 1.117.0, the first with CLI 0.10.0
+    /// (`journal edit`). Reads Info.plist each time (Bundle caches it), so updating Heptabase is noticed.
+    static var outdatedVersion: String? {
+        guard let app = appURL,
+              let info = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist")),
+              let version = info["CFBundleShortVersionString"] as? String,
+              version.compare("1.117.0", options: .numeric) == .orderedAscending else { return nil }
+        return version
+    }
+
     /// Which setup step stands between the user and a working card, for the card's setup checklist
     /// (steps from https://support.heptabase.com/en/articles/14715462-heptabase-cli).
     static func setupStatus() -> [String: Any] {
-        guard let app = appURL else { return ["step": "install"] }
-        if let version = Bundle(url: app)?.infoDictionary?["CFBundleShortVersionString"] as? String,
-           version.compare("1.91.0", options: .numeric) == .orderedAscending {
-            return ["step": "update", "version": version]
-        }
+        guard appURL != nil else { return ["step": "install"] }
+        if let version = outdatedVersion { return ["step": "update", "version": version] }
         guard isAppRunning else { return ["step": "open"] }
         guard cliPath != nil else { return ["step": "enableCLI"] }
         let formatter = DateFormatter()
@@ -1609,6 +1626,10 @@ extension Heptabase {
         guard appURL != nil else {
             return ConnectionStatus(level: .problem, title: "Heptabase isn't installed",
                                     detail: "Install the Heptabase desktop app from heptabase.com.")
+        }
+        if let version = outdatedVersion {
+            return ConnectionStatus(level: .problem, title: "Heptabase is out of date",
+                                    detail: "You have version \(version); HeptaFloat needs 1.117 or later. Update Heptabase, then check again.")
         }
         guard cliPath != nil else {
             return ConnectionStatus(level: .problem, title: "Heptabase CLI is off",
