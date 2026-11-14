@@ -60,10 +60,7 @@ Opening Heptabase, finding today's journal, and switching back breaks your flow.
 
 1. **Download** `HeptaFloat-x.y.z.zip` from the [latest release](https://github.com/madeyexz/heptafloat/releases/latest) and double-click it to unzip.
 2. **Drag `HeptaFloat`** into your **Applications** folder — `/Applications` or the one in your home folder (it needs to live there to update itself). If you open it from somewhere else, such as Downloads, HeptaFloat offers to move itself there.
-3. **Open it.** Because HeptaFloat isn't from the App Store, macOS will warn you the first time:
-   - Click **Done** (or **Cancel**) on the warning.
-   - Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to HeptaFloat.
-   - Confirm with **Open**. You only need to do this once.
+3. **Open it.** macOS asks once whether to open an app you downloaded from the internet; click **Open**. HeptaFloat is signed with an Apple Developer ID and notarized by Apple, so there's no other warning.
 
 From 0.9.8 on, HeptaFloat updates itself (see **Settings → Version**). If you have 0.9.7 or older, download the latest release once by hand.
 
@@ -220,7 +217,9 @@ preview/             run the editor in a browser with a demo journal
 
 **Regenerate screenshots and the demo:** `./preview/capture.sh` and `./preview/record-demo.sh` (need `agent-browser` and `ffmpeg`). They show the editor in a browser, so they don't include the native title bar or the notch; `docs/notch.gif` and `docs/notch-demo.mp4` are screen recordings of the real app on a MacBook. `open HeptaFloat.app --args --show-settings` opens Settings directly, for its screenshot; `--update-url <url>` checks another address instead of GitHub's latest release (for testing updates). On Linux, start the browser with `agent-browser --init-script preview/mac-platform.js open about:blank` first so the ⌘ shortcuts work; `FPS=24 ./preview/record-demo.sh` if the recording can't keep up.
 
-**Release:** bump `VERSION` in `build.sh`, run `./build.sh`, then `gh release create vX.Y.Z dist/HeptaFloat-X.Y.Z.zip`. The updater relies on that shape: it reads the *latest* release (not drafts or pre-releases), takes the version from the `vX.Y.Z` tag, downloads the asset named exactly `HeptaFloat-X.Y.Z.zip`, checks it against the SHA-256 GitHub records on upload, and only installs a signed app whose `CFBundleShortVersionString` matches the tag.
+**Release:** bump `VERSION` in `build.sh`, commit, then `git tag vX.Y.Z && git push origin main vX.Y.Z`. The [Release workflow](.github/workflows/release.yml) builds the app on GitHub, signs it with the Developer ID certificate, has Apple notarize it, and makes a draft release with `HeptaFloat-X.Y.Z.zip`. Write the notes on the draft and publish it (`gh release edit vX.Y.Z --notes-file notes.md --draft=false`). The updater relies on that shape: it reads the *latest* release (not drafts or pre-releases), takes the version from the `vX.Y.Z` tag, downloads the asset named exactly `HeptaFloat-X.Y.Z.zip`, checks it against the SHA-256 GitHub records on upload, and only installs a signed app whose `CFBundleShortVersionString` matches the tag.
+
+**Signing:** local builds get an ad-hoc signature. The workflow needs these repository secrets: `DEVELOPER_ID_P12_BASE64` (the Developer ID Application certificate and its key as a `.p12`, from `base64 -i cert.p12`), `DEVELOPER_ID_P12_PASSWORD`, and an App Store Connect API key for notarization: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` (the `.p8` file's text). To sign and notarize on your own Mac, run `SIGN_IDENTITY="Developer ID Application" NOTARY_KEY_PATH=… NOTARY_KEY_ID=… NOTARY_ISSUER_ID=… ./build.sh`.
 
 **Round-trip test:** `bun test/roundtrip.js <folder of journal JSON>` checks that loading and saving a journal changes nothing.
 

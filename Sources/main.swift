@@ -1983,7 +1983,7 @@ enum MoveToApplications {
             try? fm.removeItem(at: copy)
             throw error
         }
-        // You already allowed this app (Open Anyway). With the quarantine flag left on, macOS would
+        // You already opened this app once. With the quarantine flag left on, macOS would
         // run the moved copy from a temporary copy again.
         let xattr = Process()
         xattr.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")

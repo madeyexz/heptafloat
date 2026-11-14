@@ -42,11 +42,26 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHumanReadableCopyright</key><string>MIT License</string>
 </dict></plist>
 PLIST
-codesign --force --sign - "$APP" >/dev/null
+# Release builds set SIGN_IDENTITY ("Developer ID Application") and an App Store Connect API key
+# (NOTARY_KEY_PATH, NOTARY_KEY_ID, NOTARY_ISSUER_ID), so Gatekeeper opens the app without warnings.
+# Local builds get an ad-hoc signature.
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
+else
+  codesign --force --sign - "$APP" >/dev/null
+fi
 
 # Release archive
-rm -f "dist/HeptaFloat-$VERSION.zip"
-ditto -c -k --keepParent "$APP" "dist/HeptaFloat-$VERSION.zip"
+ZIP="dist/HeptaFloat-$VERSION.zip"
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+if [ -n "${NOTARY_KEY_PATH:-}" ]; then
+  # Stapling fails unless Apple accepted the app; `xcrun notarytool log <id>` says why.
+  xcrun notarytool submit "$ZIP" --wait --key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID"
+  xcrun stapler staple "$APP"
+  rm "$ZIP"
+  ditto -c -k --keepParent "$APP" "$ZIP"
+fi
 
 # Local install
 rm -rf ~/Applications/HeptaFloat.app
